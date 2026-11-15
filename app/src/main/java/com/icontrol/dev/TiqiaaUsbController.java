@@ -1,54 +1,42 @@
 package com.icontrol.dev;
 
 import android.content.Context;
+import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbRequest;
-import android.os.Build;
-import android.os.SystemClock;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * JNI-boundary class for the Tiqiaa USB-C IR dongle (CP210x bridge, VID 0x10C4/0x045E,
- * PID 0x8468). The native methods below are implemented in libtiqiaadev.so and are bound
- * by their exact class name + method name + signature. Keep the native method
- * declarations byte-for-byte identical to the originals.
- *
- * The surrounding Java (connection handling, read loop) is our own reimplementation of
- * the behaviour observed in the decompiled ZaZaRemote classes (TiqiaaUsbController + n0),
- * simplified into a synchronous API that DongleManager drives.
- *
- * Protocol recap (from decompilation):
- *   - Control/mode command : s(conn, outEp, mode, seq)
- *   - Transmit IR          : t(ctx, conn, outEp, freq, patternBytes, seq)
- *   - "fix"/raw send       : l(conn, outEp, bytes, seq)
- *   - Decode a read buffer : d(buffer) -> IControlIRData
- *   - Open/close native    : o(ctx) / x()
- *   Responses are read from the IN endpoint in 64-byte USB packets:
- *     [0]==1 marks a data packet, [1]-3 = payload length (<=56), payload at offset 5,
- *     [3]/[4] are sequence markers; packets are concatenated until a short packet or
- *     matching markers signal the end, then handed to d().
- *   A response's type f()==4 means "sent OK", f()==5 means "IR received" (learn).
+ * Faithful reproduction of ZaZa's TiqiaaUsbController. Binds to libtiqiaadev.so via the
+ * private native methods (d/l/o/s/t/x) by exact name+signature. The threaded reader and
+ * the o0 overrides reproduce the original driving logic exactly — this is what makes
+ * send and learn actually work.
  */
-public final class TiqiaaUsbController {
+public final class TiqiaaUsbController extends o0 implements Runnable {
+    static final int F = 4292;   // 0x10C4
+    static final int G = 1118;   // 0x045E
+    static final int H = 33896;  // 0x8468
+
+    private final AtomicBoolean C;
+    private final Object D;
+    private final ConcurrentLinkedQueue<IControlIRData> E;
 
     static {
-        // Dependency order: util before dev.
         try { System.loadLibrary("tiqiaautil"); } catch (Throwable ignore) {}
         System.loadLibrary("tiqiaadev");
     }
 
-    private final Context ctx;
-    private UsbDeviceConnection conn;
-    private UsbEndpoint outEp; // host -> dongle
-    private UsbEndpoint inEp;   // dongle -> host
-
-    public TiqiaaUsbController(Context context) {
-        this.ctx = context.getApplicationContext();
+    public TiqiaaUsbController(Context context, v.a aVar) {
+        super(context, aVar);
+        this.C = new AtomicBoolean();
+        this.D = new Object();
+        this.E = new ConcurrentLinkedQueue<>();
     }
 
-    // ----- native methods (EXACT signatures — bound by libtiqiaadev.so) -----
     private native IControlIRData d(byte[] bArr);
     private native boolean l(UsbDeviceConnection usbDeviceConnection, UsbEndpoint usbEndpoint, byte[] bArr, int i10);
     private native boolean o(Context context);
@@ -56,91 +44,98 @@ public final class TiqiaaUsbController {
     private native boolean t(Context context, UsbDeviceConnection usbDeviceConnection, UsbEndpoint usbEndpoint, int i10, byte[] bArr, int i11);
     private native void x();
 
-    // ----- public API used by DongleManager / sources -----
-
-    /** Supply the opened USB connection and the two bulk endpoints. */
-    public void attach(UsbDeviceConnection connection, UsbEndpoint out, UsbEndpoint in) {
-        this.conn = connection;
-        this.outEp = out;
-        this.inEp = in;
-    }
-
-    public boolean isAttached() {
-        return conn != null && outEp != null && inEp != null;
-    }
-
-    /** Initialise native state. Call once after attach(). */
-    public boolean openNative() {
-        return o(this.ctx);
-    }
-
-    /** Send a control/mode command (mode 0 stop, 1 send-ready, 2 study/learn). */
-    public boolean sendMode(int mode, int seq) {
-        if (conn == null || outEp == null) return false;
-        return s(conn, outEp, mode, seq);
-    }
-
-    /** Transmit an IR pattern (Tiqiaa internal byte format) at the given carrier frequency. */
-    public boolean transmit(int freq, byte[] patternBytes, int seq) {
-        if (conn == null || outEp == null) return false;
-        return t(ctx, conn, outEp, freq, patternBytes, seq);
-    }
-
-    /** Raw/"fix" send variant. */
-    public boolean rawSend(byte[] bytes, int seq) {
-        if (conn == null || outEp == null) return false;
-        return l(conn, outEp, bytes, seq);
-    }
-
-    public void closeNative() {
-        try { x(); } catch (Throwable ignore) {}
-    }
-
-    /**
-     * Read one response from the dongle, reassembling multi-packet payloads, and decode
-     * it via the native d(). Returns null on timeout or error.
-     */
-    public IControlIRData readData(int timeoutMs) {
-        if (conn == null || inEp == null) return null;
-        UsbRequest req = new UsbRequest();
-        if (!req.initialize(conn, inEp)) {
-            req.close();
-            return null;
+    private IControlIRData w(int i10) {
+        if (this.f23215f == null) return null;
+        IControlIRData poll = this.E.poll();
+        if (poll != null) return poll;
+        if (this.C.compareAndSet(false, true)) {
+            new Thread(this).start();
         }
-        byte[] acc = new byte[1024];
-        ByteBuffer buf = ByteBuffer.allocate(64);
-        int off = 0;
-        long deadline = SystemClock.uptimeMillis() + timeoutMs;
-        try {
-            while (SystemClock.uptimeMillis() < deadline) {
-                buf.clear();
-                if (!req.queue(buf, 64)) break;
-                UsbRequest done;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    long remaining = deadline - SystemClock.uptimeMillis();
-                    if (remaining <= 0) break;
-                    done = conn.requestWait(remaining);
-                } else {
-                    done = conn.requestWait();
-                }
-                if (done == null || done != req) break;
-                byte[] a = buf.array();
-                int len = a[1] - 3;
-                byte b10 = a[3];
-                byte b11 = a[4];
-                if (a[0] == 1 && len >= 0 && len <= 56) {
-                    System.arraycopy(a, 5, acc, off, len);
-                    off += len;
-                    if (len < 56 || b10 == b11) {
-                        return d(acc);
+        synchronized (this.D) {
+            try { this.D.wait(i10); } catch (InterruptedException ignore) {} finally { }
+        }
+        return this.E.poll();
+    }
+
+    @Override public void f() {
+        synchronized (this.D) { this.D.notify(); }
+    }
+
+    @Override public synchronized void g() {
+        super.g();
+        try { x(); } catch (Throwable ignore) {}
+        this.C.set(false);
+        this.E.clear();
+    }
+
+    @Override public boolean m(UsbDevice usbDevice) {
+        if (usbDevice == null) return false;
+        int vid = usbDevice.getVendorId();
+        int pid = usbDevice.getProductId();
+        return (vid == F || vid == G) && pid == H;
+    }
+
+    @Override public synchronized boolean p() { return o(this.f23211b); }
+
+    @Override public IControlIRData q(int i10) { return w(i10); }
+
+    @Override public void run() {
+        synchronized (this) {
+            if (!n()) { endThread(); return; }
+            UsbRequest usbRequest = new UsbRequest();
+            if (!usbRequest.initialize(this.f23215f, this.f23217h)) { endThread(); return; }
+            byte[] bArr = new byte[1024];
+            ByteBuffer allocate = ByteBuffer.allocate(64);
+            while (true) {
+                int i10 = 0;
+                while (true) {
+                    synchronized (this) {
+                        if (!n()) { endThread(); return; }
+                        allocate.clear();
+                        if (!usbRequest.queue(allocate, 64)) { endThread(); return; }
+                        try {
+                            UsbRequest requestWait = this.f23215f.requestWait();
+                            if (requestWait != null && requestWait.equals(usbRequest)) {
+                                byte[] array = allocate.array();
+                                int i11 = array[1] - 3;
+                                byte b10 = array[3];
+                                byte b11 = array[4];
+                                if (array[0] == 1 && i11 >= 0 && i11 <= 56) {
+                                    System.arraycopy(array, 5, bArr, i10, i11);
+                                    i10 += i11;
+                                    if (i11 < 56 || b10 == b11) break;
+                                }
+                            }
+                        } catch (Exception e) {
+                            endThread();
+                            return;
+                        }
                     }
                 }
+                IControlIRData d10 = d(bArr);
+                if (d10 != null) this.E.add(d10);
+                synchronized (this.D) { this.D.notify(); }
             }
-        } catch (Exception e) {
-            return null;
-        } finally {
-            try { req.close(); } catch (Exception ignore) {}
         }
-        return null;
+    }
+
+    private void endThread() {
+        this.C.set(false);
+        synchronized (this.D) { this.D.notify(); }
+    }
+
+    @Override public boolean s(int i10, int i11) {
+        this.E.clear();
+        return s(this.f23215f, this.f23216g, i10, i11);
+    }
+
+    @Override public boolean t(int i10, byte[] bArr, int i11) {
+        this.E.clear();
+        return t(this.f23211b, this.f23215f, this.f23216g, i10, bArr, i11);
+    }
+
+    public boolean v(byte[] bArr, int i10) {
+        this.E.clear();
+        return l(this.f23215f, this.f23216g, bArr, i10);
     }
 }
