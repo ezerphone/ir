@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tiqiaa USB-C IR dongle (CP210x bridge). -->
+    <usb-device vendor-id="4292" product-id="33896" />
+    <usb-device vendor-id="1118" product-id="33896" />
+</resources>

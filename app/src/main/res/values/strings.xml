@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">שלט אופליין</string>
+    <string name="dongle_connected">הדונגל מחובר</string>
+    <string name="dongle_missing">הדונגל לא מחובר</string>
+    <string name="dongle_no_permission">נדרש אישור גישה לדונגל</string>
+    <string name="connect">חבר</string>
+    <string name="add_device">הוסף מכשיר</string>
+    <string name="learn">למידה משלט</string>
+    <string name="export">ייצוא קודים</string>
+    <string name="import_codes">ייבוא קודים</string>
+    <string name="no_remotes">אין עדיין שלטים. הוסף מכשיר או למד משלט פיזי.</string>
+    <string name="category_ac">מזגן</string>
+    <string name="category_tv">טלוויזיה</string>
+    <string name="source_smartir">מאגר פתוח (SmartIR)</string>
+    <string name="source_local">מאגר ZaZa מקומי</string>
+    <string name="pick_manufacturer">בחר יצרן</string>
+    <string name="pick_model">בחר דגם</string>
+    <string name="pick_category">בחר סוג מכשיר</string>
+    <string name="pick_brand">בחר מותג</string>
+    <string name="pick_remote">בחר שלט</string>
+    <string name="power">הפעלה/כיבוי</string>
+    <string name="temp">טמפרטורה</string>
+    <string name="mode">מצב</string>
+    <string name="fan">מאוורר</string>
+    <string name="save">שמור</string>
+    <string name="learn_hint">כוון את השלט הפיזי אל הדונגל ולחץ על הכפתור</string>
+    <string name="sent">נשלח</string>
+    <string name="send_failed">השליחה נכשלה</string>
+</resources>
