@@ -177,9 +177,23 @@ public final class RawDongle {
      * the user confirmed works repeatedly.
      */
     public byte[] learnReliable(int timeoutMs) {
-        reopen();
-        byte[] p = learn(timeoutMs);
-        if (p == null) { reopen(); p = learn(timeoutMs); }
+        return learnLogged(timeoutMs, new java.util.ArrayList<String>());
+    }
+
+    /**
+     * Canonical reliable learn with a verbose log. The Learn UI and the Diagnostics
+     * screen both call this, so they behave identically: try once, and if nothing is
+     * captured reopen the dongle and retry once. A null return means no IR was seen.
+     */
+    public byte[] learnLogged(int timeoutMs, List<String> log) {
+        byte[] p = learnVerbose(timeoutMs, log);
+        if (p == null) {
+            log.add("no frames — reopening dongle and retrying once...");
+            reopen();
+            p = learnVerbose(timeoutMs, log);
+        }
+        if (p == null) log.add("NO IR captured");
+        else log.add("captured OK: " + p.length + " bytes");
         return p;
     }
 

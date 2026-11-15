@@ -63,6 +63,27 @@
                 android:layout_marginStart="8dp"
                 android:text="@string/learn" />
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/learnStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/textPrimary"
+            android:textSize="13sp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/learnLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/textSecondary"
+            android:textSize="11sp"
+            android:maxLines="6"
+            android:scrollbars="vertical"
+            android:text="" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView

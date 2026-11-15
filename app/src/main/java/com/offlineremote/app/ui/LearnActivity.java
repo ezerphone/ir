@@ -33,6 +33,7 @@ public class LearnActivity extends AppCompatActivity {
     private EditText nameInput, keyLabel;
     private Spinner categorySpinner;
     private SimpleAdapter adapter;
+    private android.widget.TextView status, logView;
     private final List<IrKey> learned = new ArrayList<>();
 
     private static final String[] CAT_VALUES = {"ac", "tv", "stb", "fan", "other"};
@@ -48,6 +49,9 @@ public class LearnActivity extends AppCompatActivity {
         nameInput = findViewById(R.id.nameInput);
         keyLabel = findViewById(R.id.keyLabel);
         categorySpinner = findViewById(R.id.categorySpinner);
+        status = findViewById(R.id.learnStatus);
+        logView = findViewById(R.id.learnLog);
+        logView.setMovementMethod(new android.text.method.ScrollingMovementMethod());
         ArrayAdapter<String> catAdapter = new ArrayAdapter<>(this,
                 android.R.layout.simple_spinner_item, CAT_LABELS);
         catAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -64,29 +68,47 @@ public class LearnActivity extends AppCompatActivity {
         btnSave.setOnClickListener(v -> save());
     }
 
+    /** Same open sequence the Diagnostics screen uses. */
+    private boolean ensureRawOpen() {
+        com.offlineremote.app.usb.RawDongle raw = App.get().raw();
+        if (raw.isOpen()) return true;
+        try { App.get().dongle().disconnect(); } catch (Throwable ignore) {}
+        return raw.open();
+    }
+
+    private void setStatus(String s) { runOnUiThread(() -> status.setText(s)); }
+
+    private void showLog(java.util.List<String> lg) {
+        StringBuilder sb = new StringBuilder();
+        for (String s : lg) sb.append("• ").append(s).append('\n');
+        runOnUiThread(() -> logView.setText(sb.toString().trim()));
+    }
+
     private void learnOne() {
         final String label = keyLabel.getText().toString().trim();
         if (TextUtils.isEmpty(label)) {
             Toast.makeText(this, "שם כפתור?", Toast.LENGTH_SHORT).show();
             return;
         }
-        Toast.makeText(this, R.string.learn_hint, Toast.LENGTH_SHORT).show();
+        setStatus("מכוון את השלט המקורי לדונגל ולוחץ כפתור... (עד 12 שנ')");
         App.get().io().execute(() -> {
-            com.offlineremote.app.usb.RawDongle raw = App.get().raw();
-            if (!raw.isOpen()) raw.open();
-            if (!raw.isOpen()) {
-                runOnUiThread(() -> Toast.makeText(this, R.string.dongle_missing, Toast.LENGTH_SHORT).show());
+            if (!ensureRawOpen()) {
+                setStatus("✗ הדונגל לא נפתח (הרשאה? מחובר?)");
                 return;
             }
-            byte[] frame = raw.learnReliable(12000);
+            java.util.List<String> lg = new java.util.ArrayList<>();
+            // EXACT same call the Diagnostics screen uses.
+            byte[] frame = App.get().raw().learnLogged(12000, lg);
+            showLog(lg);
             runOnUiThread(() -> {
                 if (frame == null) {
-                    Toast.makeText(this, "לא נקלט אות", Toast.LENGTH_SHORT).show();
+                    status.setText("✗ לא נקלט אות — נסה שוב, כוון את השלט ישירות לדונגל");
                     return;
                 }
                 Code c = Code.nativeCode(38000, frame); // native learned frame
                 learned.add(new IrKey(label, 0, c));
                 keyLabel.setText("");
+                status.setText("✓ נקלט \"" + label + "\" (" + frame.length + " בייט)");
                 refreshKeys();
             });
         });

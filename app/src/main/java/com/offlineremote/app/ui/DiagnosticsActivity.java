@@ -146,16 +146,9 @@ public class DiagnosticsActivity extends AppCompatActivity {
                 if (!ensureRawOpen()) { line("raw open failed (permission? dongle attached?)"); return; }
                 line("point the ORIGINAL remote at the dongle and press ONE button (20s)...");
                 java.util.List<String> lg = new java.util.ArrayList<>();
-                byte[] p = App.get().raw().learnVerbose(20000, lg);
+                byte[] p = App.get().raw().learnLogged(20000, lg);
                 for (String s : lg) line("  " + s);
-                if (p == null) {
-                    line("no frames — reopening dongle and retrying once...");
-                    App.get().raw().reopen();
-                    lg = new java.util.ArrayList<>();
-                    p = App.get().raw().learnVerbose(20000, lg);
-                    for (String s : lg) line("  " + s);
-                }
-                if (p == null) { line("no IR captured"); return; }
+                if (p == null) { return; }
                 App.get().lastLearnedPayload = p;
                 line("LEARNED ok: " + p.length + " bytes. Aim the dongle at the device and press שדר.");
             } catch (Throwable t) {
