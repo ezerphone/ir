@@ -242,10 +242,34 @@ public final class RawDongle {
         return null;
     }
 
-    /** Put dongle in send mode and transmit a captured payload. */
-    public void replayPayload(byte[] payload) {
+    /**
+     * Convert a LEARNED frame ("ST" b 'D' <dur...> "EN") into a SEND frame
+     * ("ST" seq 'D' <freqIdx> <dur...> "EN") by inserting the frequency-index byte that
+     * the transmit path requires right after 'D'. (_t writes freqIdx at offset 4.)
+     */
+    public byte[] buildSendFrame(byte[] learned, int freqIdx) {
+        if (learned == null || learned.length < 6) return null;
+        int durLen = learned.length - 6; // strip "ST b D" (4) and "EN" (2)
+        if (durLen < 1) return null;
+        byte[] inner = new byte[5 + durLen + 2];
+        inner[0] = 'S'; inner[1] = 'T';
+        inner[2] = (byte) nextSeq();
+        inner[3] = 'D';
+        inner[4] = (byte) freqIdx;
+        System.arraycopy(learned, 4, inner, 5, durLen);
+        inner[5 + durLen] = 'E'; inner[6 + durLen] = 'N';
+        return inner;
+    }
+
+    public byte[] lastSendFrame; // for logging/diagnostics
+
+    /** Put dongle in send mode and transmit a captured (learned) payload. */
+    public void replayPayload(byte[] learnedPayload) {
+        byte[] frame = buildSendFrame(learnedPayload, 0); // 0 = 38 kHz
+        lastSendFrame = frame;
+        if (frame == null) return;
         sendRaw(modePacket('S')); drain(200);
-        transmitPayload(payload);
+        transmitPayload(frame);
     }
 
     /** End-to-end test: handshake, learn one signal, then replay it. */

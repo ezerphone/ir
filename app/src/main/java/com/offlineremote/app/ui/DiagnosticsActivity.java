@@ -163,9 +163,10 @@ public class DiagnosticsActivity extends AppCompatActivity {
                 byte[] p = App.get().lastLearnedPayload;
                 if (p == null) { line("nothing learned yet — press למד first"); return; }
                 if (!ensureRawOpen()) { line("raw open failed"); return; }
-                line("transmitting " + p.length + " bytes...");
+                line("building send frame from " + p.length + "-byte learned frame...");
                 App.get().raw().replayPayload(p);
-                line("sent. did the device react?");
+                byte[] f = App.get().raw().lastSendFrame;
+                line("sent frame (" + (f == null ? 0 : f.length) + " bytes). did the device react?");
             } catch (Throwable t) {
                 line("SEND ERROR: " + t);
             }
