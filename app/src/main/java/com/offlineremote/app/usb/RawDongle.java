@@ -221,6 +221,46 @@ public final class RawDongle {
         reopen();
     }
 
+    private byte[] wrap1(byte[] payload) {
+        return wrapChunk(payload, 0, payload.length, nextUsbSeq(), 1, 1);
+    }
+    private int bulkOut(byte[] pkt) {
+        if (conn == null || epOut == null) return -99;
+        return conn.bulkTransfer(epOut, pkt, pkt.length, 1000);
+    }
+
+    /** Verbose send: logs mode cmd, each chunk, the dongle's response, and whether the
+     *  connection is still alive afterwards (probe). NO reopen — pure diagnosis. */
+    public void sendVerbose(byte[] learnedPayload, List<String> log) {
+        byte[] frame = buildSendFrame(learnedPayload, 0);
+        lastSendFrame = frame;
+        if (frame == null) { log.add("no send frame"); return; }
+        frames.clear();
+        int r = bulkOut(wrap1(new byte[]{'S','T',(byte) nextSeq(),'S','E','N'}));
+        log.add("mode S ret=" + r);
+        try { Thread.sleep(120); } catch (InterruptedException ignore) {}
+        int total = Math.max(1, (frame.length + 55) / 56);
+        int useq = nextUsbSeq();
+        int off = 0;
+        for (int idx = 1; idx <= total; idx++) {
+            int clen = Math.min(56, frame.length - off);
+            r = bulkOut(wrapChunk(frame, off, clen, useq, total, idx));
+            log.add("chunk " + idx + "/" + total + " ret=" + r);
+            off += clen;
+            try { Thread.sleep(4); } catch (InterruptedException ignore) {}
+        }
+        try { Thread.sleep(150); } catch (InterruptedException ignore) {}
+        byte[] ack = frames.poll();
+        log.add("send response: " + (ack == null ? "none" : hex(ack)));
+        // probe: is the connection still alive after the send?
+        frames.clear();
+        r = bulkOut(wrap1(new byte[]{'S','T',(byte) nextSeq(),'L','E','N'}));
+        log.add("probe L ret=" + r);
+        byte[] la = null;
+        try { la = frames.poll(800, TimeUnit.MILLISECONDS); } catch (InterruptedException ignore) {}
+        log.add("probe L ack: " + (la == null ? "none (connection dead)" : hex(la) + " (alive)"));
+    }
+
     /** Verbose learn for diagnostics. */
     public byte[] learnVerbose(int timeoutMs, List<String> log) {
         frames.clear();
