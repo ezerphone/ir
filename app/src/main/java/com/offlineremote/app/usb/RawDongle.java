@@ -73,6 +73,8 @@ public final class RawDongle {
     public synchronized boolean open() {
         if (conn != null) return true;
         if (um == null) return false;
+        innerSeq = 0; usbSeq = 0; // fresh session each open (mimics app restart)
+        frames.clear();
         UsbDevice dev = null;
         java.util.HashMap<String, UsbDevice> list = um.getDeviceList();
         if (list != null) for (UsbDevice d : list.values()) if (DongleManager.matches(d)) { dev = d; break; }
@@ -92,7 +94,11 @@ public final class RawDongle {
 
     public synchronized void close() {
         running = false;
-        if (reader != null) { try { reader.join(400); } catch (InterruptedException ignore) {} reader = null; }
+        if (reader != null) {
+            try { reader.interrupt(); } catch (Throwable ignore) {}
+            try { reader.join(600); } catch (InterruptedException ignore) {}
+            reader = null;
+        }
         if (conn != null) {
             try { if (iface != null) conn.releaseInterface(iface); } catch (Throwable ignore) {}
             try { conn.close(); } catch (Throwable ignore) {}
@@ -224,8 +230,10 @@ public final class RawDongle {
         sendMode('S');
         try { Thread.sleep(120); } catch (InterruptedException ignore) {}
         sendPayload(frame);
-        try { Thread.sleep(120); } catch (InterruptedException ignore) {}
-        sendMode('L'); // back to idle
+        try { Thread.sleep(150); } catch (InterruptedException ignore) {}
+        // Sending wedges the in-process USB state; fully reset the connection afterwards
+        // (equivalent to an app restart) so the next operation starts clean.
+        reopen();
     }
 
     /** Verbose learn for diagnostics. */
