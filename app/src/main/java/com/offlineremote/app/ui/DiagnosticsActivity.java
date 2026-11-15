@@ -142,9 +142,8 @@ public class DiagnosticsActivity extends AppCompatActivity {
                     line("raw open failed (permission? dongle attached?)");
                     return;
                 }
-                line("dongle opened (raw). Sending learn command 'ST<seq>R EN'.");
-                line(">>> POINT A PHYSICAL REMOTE AT THE DONGLE AND PRESS BUTTONS for 15s <<<");
-                List<String> rec = raw.recordLearn(15000);
+                line("dongle opened (raw). Handshake L/S/R then record...");
+                List<String> rec = raw.probe(15000);
                 for (String s : rec) line(s);
             } catch (Throwable t) {
                 line("RAW ERROR: " + t);

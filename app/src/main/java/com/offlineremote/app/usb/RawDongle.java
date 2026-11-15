@@ -97,6 +97,51 @@ public final class RawDongle {
         return conn.bulkTransfer(epOut, pkt, pkt.length, 1000);
     }
 
+    /** Synchronous bulk read of one packet; returns bytes read or null on timeout. */
+    public byte[] readBulk(int timeoutMs) {
+        if (conn == null || epIn == null) return null;
+        byte[] buf = new byte[64];
+        int n = conn.bulkTransfer(epIn, buf, buf.length, timeoutMs);
+        if (n <= 0) return null;
+        byte[] out = new byte[n];
+        System.arraycopy(buf, 0, out, 0, n);
+        return out;
+    }
+
+    private static String hex(byte[] a) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < a.length; i++) sb.append(String.format("%02x", a[i] & 0xff)).append(i % 2 == 1 ? " " : "");
+        return sb.toString().trim();
+    }
+
+    /** Full probe: handshake (L), then try S and R, logging every TX/RX, then record IR. */
+    public List<String> probe(int recordMs) {
+        List<String> log = new ArrayList<>();
+        char[] modes = {'L', 'S', 'R'};
+        for (char mc : modes) {
+            byte[] pkt = modePacket(mc);
+            int ret = sendRaw(pkt);
+            log.add("TX '" + mc + "' [" + hex(pkt) + "] ret=" + ret);
+            // read up to 3 quick replies to this command
+            for (int k = 0; k < 3; k++) {
+                byte[] r = readBulk(600);
+                if (r == null) break;
+                log.add("  RX " + hex(r));
+            }
+        }
+        log.add(">>> now point a remote & press buttons (" + (recordMs / 1000) + "s) <<<");
+        long deadline = System.currentTimeMillis() + recordMs;
+        int pkts = 0;
+        while (System.currentTimeMillis() < deadline) {
+            byte[] r = readBulk(1500);
+            if (r == null) continue;
+            log.add("RX " + hex(r));
+            if (++pkts > 80) break;
+        }
+        log.add("-- recorded " + pkts + " IR packets --");
+        return log;
+    }
+
     /** Read one 64-byte IN packet; returns the bytes actually read, or null on timeout. */
     public byte[] readOnce(int timeoutMs) {
         if (conn == null || epIn == null) return null;
