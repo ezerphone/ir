@@ -25,6 +25,7 @@ final class DemoMode {
         String demo = intent == null ? null : intent.getStringExtra(EXTRA);
         if (demo == null) return false;
         intent.removeExtra(EXTRA);
+        if (!demo.equals("rot") && !demo.equals("unrot")) seed();
         switch (demo) {
             case "rot": a.getSharedPreferences("ui", Activity.MODE_PRIVATE).edit().putBoolean("rot180", true).commit(); return false;
             case "unrot": a.getSharedPreferences("ui", Activity.MODE_PRIVATE).edit().putBoolean("rot180", false).commit(); return false;
