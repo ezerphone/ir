@@ -21,14 +21,20 @@ import java.util.Locale;
 public final class LocalIrDb {
 
     static {
-        try { System.loadLibrary("tiqiaautil"); } catch (Throwable ignore) {}
-        try { System.loadLibrary("tiqiaadev"); } catch (Throwable ignore) {}
-        System.loadLibrary("localirdb");
+        try {
+            try { System.loadLibrary("tiqiaautil"); } catch (Throwable ignore) {}
+            try { System.loadLibrary("tiqiaadev"); } catch (Throwable ignore) {}
+            System.loadLibrary("localirdb");
+        } catch (Throwable t) {
+            loadError = t.getClass().getSimpleName() + ": " + t.getMessage();
+        }
     }
 
     private static LocalIrDb singleton = null;
+    public static volatile String loadError = null; // set if a native lib failed to load
 
     private final Context f56612a;
+    private boolean inited = false;
 
     private LocalIrDb(Context context) {
         this.f56612a = context.getApplicationContext();
@@ -230,6 +236,16 @@ public final class LocalIrDb {
     public static synchronized LocalIrDb get(Context context) {
         if (singleton == null) {
             singleton = new LocalIrDb(context);
+        }
+        if (!singleton.inited) {
+            // ZaZa initialises with w(9, 3): initSdk(appVer=9, dbVer=3) THEN irdbOpen.
+            // The DB returns no data unless initSdk runs first.
+            try {
+                singleton.initSdk(singleton.f56612a, (9 & 0xFFFF) | ((3 & 0xFFFF) << 16));
+            } catch (Throwable t) {
+                loadError = "initSdk " + t.getClass().getSimpleName() + ": " + t.getMessage();
+            }
+            singleton.inited = true;
         }
         singleton.irdbOpen(singleton.f56612a, null);
         return singleton;

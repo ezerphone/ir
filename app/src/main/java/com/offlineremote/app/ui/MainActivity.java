@@ -172,7 +172,10 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         int id = item.getItemId();
-        if (id == R.id.action_export) {
+        if (id == R.id.action_diag) {
+            startActivity(new Intent(this, DiagnosticsActivity.class));
+            return true;
+        } else if (id == R.id.action_export) {
             exportLauncher.launch("offline-ir-remotes.json");
             return true;
         } else if (id == R.id.action_import) {
