@@ -133,6 +133,87 @@ public final class RawDongle {
         return sb.toString().trim();
     }
 
+    /** Wrap a payload as one chunk of a multi-chunk message. */
+    private byte[] wrapChunk(byte[] payload, int off, int clen, int useq, int total, int idx) {
+        byte[] pkt = new byte[5 + clen];
+        pkt[0] = 0x02;
+        pkt[1] = (byte) (clen + 3);
+        pkt[2] = (byte) useq;
+        pkt[3] = (byte) total;
+        pkt[4] = (byte) idx;
+        System.arraycopy(payload, off, pkt, 5, clen);
+        return pkt;
+    }
+
+    /** Transmit a captured IR payload ("ST..EN", inner) by re-chunking + wrapping + sending. */
+    public void transmitPayload(byte[] payload) {
+        int total = (payload.length + 55) / 56;
+        if (total < 1) total = 1;
+        int useq = nextUsbSeq();
+        int off = 0;
+        for (int idx = 1; idx <= total; idx++) {
+            int clen = Math.min(56, payload.length - off);
+            byte[] pkt = wrapChunk(payload, off, clen, useq, total, idx);
+            sendRaw(pkt);
+            off += clen;
+            try { Thread.sleep(5); } catch (InterruptedException ignore) {}
+        }
+    }
+
+    /** Drain/ignore responses for a short time. */
+    private void drain(int ms) {
+        long d = System.currentTimeMillis() + ms;
+        while (System.currentTimeMillis() < d) { if (readBulk(150) == null) {} }
+    }
+
+    /**
+     * Read IN packets and reassemble a multi-chunk message whose payload is a learned IR
+     * frame ("ST" <seq> 'D' ...). Returns the inner payload, or null on timeout.
+     */
+    public byte[] readLearned(int timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        java.io.ByteArrayOutputStream acc = new java.io.ByteArrayOutputStream();
+        int curSeq = -1, needTotal = -1, haveIdx = 0;
+        while (System.currentTimeMillis() < deadline) {
+            byte[] p = readBulk(1500);
+            if (p == null || p.length < 5) continue;
+            if ((p[0] & 0xff) != 0x01) continue;
+            int len = (p[1] & 0xff) - 3;
+            int useq = p[2] & 0xff, total = p[3] & 0xff, idx = p[4] & 0xff;
+            if (len < 0 || len > 56 || 5 + len > p.length) continue;
+            if (idx == 1) { acc.reset(); curSeq = useq; needTotal = total; haveIdx = 0; }
+            if (useq != curSeq) continue;
+            acc.write(p, 5, len);
+            haveIdx = idx;
+            if (idx >= needTotal) {
+                byte[] payload = acc.toByteArray();
+                // learned IR frames carry 'D' (0x44) at payload[3]
+                if (payload.length >= 4 && payload[3] == 0x44) return payload;
+                // otherwise (ACK) keep listening
+                acc.reset(); curSeq = -1;
+            }
+        }
+        return null;
+    }
+
+    /** End-to-end test: handshake, learn one signal, then replay it. */
+    public List<String> learnAndReplay(int learnMs) {
+        List<String> log = new ArrayList<>();
+        sendRaw(modePacket('L')); drain(300);
+        sendRaw(modePacket('R')); drain(300);
+        log.add("point the ORIGINAL remote at the dongle and press ONE button...");
+        byte[] learned = readLearned(learnMs);
+        if (learned == null) { log.add("no IR captured (null)"); return log; }
+        log.add("LEARNED ok, " + learned.length + " bytes: " + hex(learned));
+        try { Thread.sleep(2000); } catch (InterruptedException ignore) {}
+        log.add("replaying now (watch your device)...");
+        // ensure send mode, then transmit
+        sendRaw(modePacket('S')); drain(200);
+        transmitPayload(learned);
+        log.add("replay sent.");
+        return log;
+    }
+
     /** Full probe: handshake (L), then try S and R, logging every TX/RX, then record IR. */
     public List<String> probe(int recordMs) {
         List<String> log = new ArrayList<>();
