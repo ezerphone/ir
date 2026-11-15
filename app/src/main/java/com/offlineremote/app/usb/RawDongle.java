@@ -50,7 +50,8 @@ public final class RawDongle {
     private UsbInterface iface;
     private UsbDeviceConnection conn;
     private UsbEndpoint epIn, epOut;
-    private int seq = 0;
+    private int seq = 0;       // inner payload seq (0..255)
+    private int usbSeq = 0;    // outer USB-frame seq (1..15)
 
     public RawDongle(Context c) {
         this.ctx = c.getApplicationContext();
@@ -86,10 +87,28 @@ public final class RawDongle {
     }
 
     private int nextSeq() { seq = (seq + 1) & 0xFF; return seq; }
+    private int nextUsbSeq() { usbSeq = (usbSeq >= 15) ? 1 : usbSeq + 1; return usbSeq; }
 
-    /** Build a mode packet: "ST" + seq + modeChar + "EN". */
+    /**
+     * Wrap a payload in the dongle's USB framing (single chunk, payload must be <=56 bytes):
+     *   [0x02][payloadLen+3][usbSeq][totalChunks=1][chunkIdx=1] + payload
+     */
+    public byte[] wrap(byte[] payload) {
+        int n = payload.length;
+        byte[] pkt = new byte[5 + n];
+        pkt[0] = 0x02;
+        pkt[1] = (byte) (n + 3);
+        pkt[2] = (byte) nextUsbSeq();
+        pkt[3] = 1;   // total chunks
+        pkt[4] = 1;   // chunk index
+        System.arraycopy(payload, 0, pkt, 5, n);
+        return pkt;
+    }
+
+    /** Full USB packet for a mode command: wrap("ST" + innerSeq + modeChar + "EN"). */
     public byte[] modePacket(char modeChar) {
-        return new byte[]{'S','T',(byte) nextSeq(),(byte) modeChar,'E','N'};
+        byte[] payload = new byte[]{'S','T',(byte) nextSeq(),(byte) modeChar,'E','N'};
+        return wrap(payload);
     }
 
     public int sendRaw(byte[] pkt) {
