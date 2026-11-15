@@ -68,14 +68,16 @@ public class DiagnosticsActivity extends AppCompatActivity {
             line("\n=== LOCAL DB (ZaZa) ===");
             try {
                 LocalIrDb db = App.get().localDb().raw();
-                LocalIrDb.MachineTypeInfo[] types = db.machineTypes();
-                line("machineTypes: " + types.length);
-                for (int i = 0; i < Math.min(types.length, 6); i++) {
-                    line("  [" + types[i].type() + "] " + types[i].display());
-                }
-                if (types.length > 0) {
-                    LocalIrDb.DbBrand[] brands = db.brands(types[0].type());
-                    line("brands(type " + types[0].type() + "): " + brands.length);
+                line("irdbOpen: " + db.lastOpen);
+                line("getAllMachineTypeInfo: " + db.machineTypes().length);
+                String[] names = {"TV","AC","Fan","Projector","STB","DVD/AV","Camera",
+                        "IrSwitch","Amp","IPTV","OTT","WaterHeater","AirCleaner"};
+                for (int t = 1; t <= 13; t++) {
+                    int bc;
+                    try { bc = db.brands(t).length; } catch (Throwable e) { bc = -1; }
+                    int mask;
+                    try { mask = db.acModeMask(t); } catch (Throwable e) { mask = -1; }
+                    line("  type " + t + " (" + names[t - 1] + "): brands=" + bc + " acMask=" + mask);
                 }
             } catch (Throwable t) {
                 line("DB ERROR: " + t);

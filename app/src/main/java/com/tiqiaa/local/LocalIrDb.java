@@ -32,6 +32,7 @@ public final class LocalIrDb {
 
     private static LocalIrDb singleton = null;
     public static volatile String loadError = null; // set if a native lib failed to load
+    public volatile boolean lastOpen = false;       // result of the last irdbOpen
 
     private final Context f56612a;
     private boolean inited = false;
@@ -247,7 +248,7 @@ public final class LocalIrDb {
             }
             singleton.inited = true;
         }
-        singleton.irdbOpen(singleton.f56612a, null);
+        singleton.lastOpen = singleton.irdbOpen(singleton.f56612a, null);
         return singleton;
     }
 

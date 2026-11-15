@@ -92,6 +92,8 @@ public class AddDeviceActivity extends AppCompatActivity {
                 getString(R.string.source_smartir), () -> push(this::acManufacturers)));
         rows.add(new SimpleAdapter.Row(getString(R.string.category_tv),
                 getString(R.string.source_smartir), () -> push(this::tvManufacturers)));
+        rows.add(new SimpleAdapter.Row(getString(R.string.source_local),
+                "מאגר מוטמע (מזגנים, טלוויזיות, ממירים...)", () -> push(this::localTypes)));
         setRows(getString(R.string.pick_category), rows);
     }
 
@@ -142,40 +144,37 @@ public class AddDeviceActivity extends AppCompatActivity {
     }
 
     private void localTypes() {
-        loadRows(getString(R.string.pick_category), () -> {
-            List<SimpleAdapter.Row> rows = new ArrayList<>();
-            for (LocalIrDb.MachineTypeInfo t : App.get().localDb().types()) {
-                final LocalIrDb.MachineTypeInfo type = t;
-                rows.add(new SimpleAdapter.Row(type.display(), "type " + type.type(),
-                        () -> push(() -> localBrands(type))));
-            }
-            return rows;
-        });
+        List<SimpleAdapter.Row> rows = new ArrayList<>();
+        for (com.offlineremote.app.sources.LocalIrdbSource.Cat c : com.offlineremote.app.sources.LocalIrdbSource.CATS) {
+            final com.offlineremote.app.sources.LocalIrdbSource.Cat cat = c;
+            rows.add(new SimpleAdapter.Row(cat.label, null, () -> push(() -> localBrands(cat))));
+        }
+        setRows(getString(R.string.pick_category), rows);
     }
 
-    private void localBrands(LocalIrDb.MachineTypeInfo type) {
+    private void localBrands(com.offlineremote.app.sources.LocalIrdbSource.Cat cat) {
         loadRows(getString(R.string.pick_brand), () -> {
             List<SimpleAdapter.Row> rows = new ArrayList<>();
-            for (LocalIrDb.DbBrand brand : App.get().localDb().brands(type.type())) {
+            for (LocalIrDb.DbBrand brand : App.get().localDb().brands(cat.id)) {
                 final LocalIrDb.DbBrand b = brand;
                 rows.add(new SimpleAdapter.Row(b.display(), null,
-                        () -> push(() -> localRemotes(type, b))));
+                        () -> push(() -> localRemotes(cat, b))));
             }
             return rows;
         });
     }
 
-    private void localRemotes(LocalIrDb.MachineTypeInfo type, LocalIrDb.DbBrand brand) {
+    private void localRemotes(com.offlineremote.app.sources.LocalIrdbSource.Cat cat, LocalIrDb.DbBrand brand) {
         loadRows(getString(R.string.pick_remote), () -> {
             List<SimpleAdapter.Row> rows = new ArrayList<>();
-            List<LocalIrDb.DbRemote> remotes = App.get().localDb().remotesForBrand(brand.id());
+            List<LocalIrDb.DbRemote> remotes = App.get().localDb().remotes(cat.id, brand.id());
             int i = 1;
             for (LocalIrDb.DbRemote r : remotes) {
                 final LocalIrDb.DbRemote rem = r;
                 String model = (r.model() == null || r.model().isEmpty()) ? ("#" + i) : r.model();
                 final String name = brand.display() + " " + model;
                 rows.add(new SimpleAdapter.Row(name, r.id(),
-                        () -> saveLocal(type, brand, rem, name)));
+                        () -> saveLocal(cat, brand, rem, name)));
                 i++;
             }
             return rows;
@@ -208,25 +207,16 @@ public class AddDeviceActivity extends AppCompatActivity {
         });
     }
 
-    private void saveLocal(LocalIrDb.MachineTypeInfo type, LocalIrDb.DbBrand brand,
+    private void saveLocal(com.offlineremote.app.sources.LocalIrdbSource.Cat cat, LocalIrDb.DbBrand brand,
                            LocalIrDb.DbRemote remote, String name) {
         progress.setVisibility(View.VISIBLE);
         App.get().io().execute(() -> {
             LocalIrDb.DbRemote full = App.get().localDb().fetch(remote.id(), brand.id());
             if (full == null) full = remote;
-            SavedRemote r = App.get().localDb().toSavedRemote(full, catFor(type), name);
+            SavedRemote r = App.get().localDb().toSavedRemote(full, cat.category, name);
             App.get().store().add(r);
             runOnUiThread(() -> { progress.setVisibility(View.GONE); open(r); });
         });
-    }
-
-    private static String catFor(LocalIrDb.MachineTypeInfo t) {
-        String s = (t.display() + " " + t.en()).toLowerCase();
-        if (s.contains("tv") || s.contains("电视")) return "tv";
-        if (s.contains("air") || s.contains("空调") || s.contains("ac")) return "ac";
-        if (s.contains("box") || s.contains("盒")) return "stb";
-        if (s.contains("fan") || s.contains("风")) return "fan";
-        return "other";
     }
 
     private void open(SavedRemote r) {

@@ -25,6 +25,37 @@ public final class LocalIrdbSource {
 
     public LocalIrDb raw() { return db; }
 
+    /** ZaZa's hardcoded appliance types (id -> label), as used by the real app. */
+    public static final class Cat {
+        public final int id; public final String label; public final String category;
+        public Cat(int id, String label, String category) { this.id = id; this.label = label; this.category = category; }
+    }
+
+    public static final Cat[] CATS = new Cat[] {
+            new Cat(1, "טלוויזיה", "tv"),
+            new Cat(2, "מזגן", "ac"),
+            new Cat(3, "מאוורר", "fan"),
+            new Cat(4, "מקרן", "other"),
+            new Cat(5, "ממיר", "stb"),
+            new Cat(6, "DVD / וידאו / AV", "other"),
+            new Cat(7, "מצלמה", "other"),
+            new Cat(8, "מתג IR", "other"),
+            new Cat(9, "מגבר", "other"),
+            new Cat(10, "IPTV", "stb"),
+            new Cat(11, "OTT Box", "stb"),
+            new Cat(12, "דוד מים", "other"),
+            new Cat(13, "מטהר אוויר", "other"),
+    };
+
+    /** Remotes for a brand, optionally filtered to a machine type (-1 = any). */
+    public List<LocalIrDb.DbRemote> remotes(int machineType, long brandId) {
+        List<LocalIrDb.DbRemote> out = new ArrayList<>();
+        for (LocalIrDb.DbRemote r : db.remotesForBrand(brandId)) {
+            if (machineType < 0 || r.type() == machineType || r.type() == -1) out.add(r);
+        }
+        return out;
+    }
+
     public List<LocalIrDb.MachineTypeInfo> types() {
         List<LocalIrDb.MachineTypeInfo> out = new ArrayList<>();
         for (LocalIrDb.MachineTypeInfo t : db.machineTypes()) out.add(t);
