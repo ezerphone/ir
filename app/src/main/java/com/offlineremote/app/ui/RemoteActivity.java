@@ -350,7 +350,14 @@ public class RemoteActivity extends BaseActivity {
             String role = KeyRoles.of(k, false);
             if (KeyRoles.NUM.equals(role)) nums.add(k);
             else if (KeyRoles.COLOR.equals(role)) colors.add(k);
-            else if (KeyRoles.GENERIC.equals(role) || one.containsKey(role)) rest.add(k);
+            else if (KeyRoles.GENERIC.equals(role)) rest.add(k);
+            else if (one.containsKey(role)) {
+                // prefer the key literally named for the slot ("Menu" over "Tools")
+                if (KeyRoles.isCanonical(role, k.label) && !KeyRoles.isCanonical(role, one.get(role).label)) {
+                    rest.add(one.get(role));
+                    one.put(role, k);
+                } else rest.add(k);
+            }
             else one.put(role, k);
         }
         Set<String> used = new HashSet<>();

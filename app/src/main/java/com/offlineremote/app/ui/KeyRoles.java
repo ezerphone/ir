@@ -101,6 +101,20 @@ public final class KeyRoles {
         return GENERIC;
     }
 
+    /** True when the label is the plain name of the role ("menu" for MENU, "ok" for OK...). */
+    public static boolean isCanonical(String role, String label) {
+        String n = norm(label);
+        switch (role) {
+            case MENU: return n.equals("menu");
+            case SOURCE: return n.equals("source") || n.equals("input");
+            case BACK: return n.equals("back") || n.equals("return");
+            case HOME: return n.equals("home");
+            case OK: return n.equals("ok") || n.equals("enter");
+            case POWER: return n.equals("power");
+            default: return false;
+        }
+    }
+
     /** Digit for NUM keys, -1 if none. */
     public static int digit(IrKey k) {
         String s = k.label == null ? "" : k.label;

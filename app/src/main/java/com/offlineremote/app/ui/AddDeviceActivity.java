@@ -39,6 +39,7 @@ public class AddDeviceActivity extends BaseActivity {
     private View searchBox;
     private List<SimpleAdapter.Row> fullRows = new ArrayList<>();
     private final Deque<Runnable> stack = new ArrayDeque<>();
+    private int loadGen;   // ignores results of loads the user already navigated away from
 
     @Override
     protected void onCreate(Bundle b) {
@@ -111,9 +112,14 @@ public class AddDeviceActivity extends BaseActivity {
         progress.setVisibility(View.VISIBLE);
         bar.title(title);
         adapter.submit(new ArrayList<>());
+        final int gen = ++loadGen;
         App.get().io().execute(() -> {
             final List<SimpleAdapter.Row> rows = work.run();
-            runOnUiThread(() -> { progress.setVisibility(View.GONE); present(title, rows); });
+            runOnUiThread(() -> {
+                if (gen != loadGen || isFinishing()) return;
+                progress.setVisibility(View.GONE);
+                present(title, rows);
+            });
         });
     }
 
