@@ -9,26 +9,21 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 
 import java.io.ByteArrayOutputStream;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Clean-room driver for the Tiqiaa USB-C IR dongle — reverse-engineered ASCII protocol,
- * no Tiqiaa native libraries (no signature gate).
+ * Clean-room driver for the Tiqiaa USB-C IR dongle (reverse-engineered ASCII protocol,
+ * no Tiqiaa native libraries → no signature gate).
  *
- * Architecture mirrors ZaZa's own: ONE persistent connection plus a background reader
- * thread that continuously drains the IN endpoint, reassembles multi-chunk messages and
- * queues the completed inner payloads. This keeps the dongle's buffer clear so it stays
- * responsive across many learn/send cycles (reading only on demand made it hang after one).
+ * HALF-DUPLEX design: we NEVER read and write at the same time. A background reader
+ * racing the OUT endpoint during a long multi-chunk send deadlocked the Android USB
+ * stack (big sends hung the connection; small ones survived). So every operation is
+ * strictly write-commands-then-read-responses.
  *
  * Wire protocol:
  *   USB packet: [0x02 out / 0x01 in][payloadLen+3][seq][totalChunks][chunkIdx] + payload
- *   Inner payloads: "ST" + <byte> + <cmd> ... + "EN"
- *     mode:  "ST" <seq> <modeChar 'L'/'S'/'R'/...> "EN"
- *     send:  "ST" <seq> 'D' <freqIdx> <durationBytes> "EN"
+ *   mode:  "ST" <seq> <'L'/'S'/'R'> "EN"
+ *   send:  "ST" <seq> 'D' <freqIdx> <durationBytes> "EN"
  *   Duration byte: low7 = microseconds/16, bit7 = mark(1)/space(0); long runs as 0x7f/0xff.
  */
 public final class RawDongle {
@@ -54,13 +49,8 @@ public final class RawDongle {
     private UsbDeviceConnection conn;
     private UsbEndpoint epIn, epOut;
 
-    private volatile boolean running;
-    private Thread reader;
-    private final BlockingQueue<byte[]> frames = new LinkedBlockingQueue<>();
-
     private int innerSeq = 0;
     private int usbSeq = 0;
-
     public byte[] lastSendFrame;
 
     public RawDongle(Context c) {
@@ -73,8 +63,7 @@ public final class RawDongle {
     public synchronized boolean open() {
         if (conn != null) return true;
         if (um == null) return false;
-        innerSeq = 0; usbSeq = 0; // fresh session each open (mimics app restart)
-        frames.clear();
+        innerSeq = 0; usbSeq = 0;
         UsbDevice dev = null;
         java.util.HashMap<String, UsbDevice> list = um.getDeviceList();
         if (list != null) for (UsbDevice d : list.values()) if (DongleManager.matches(d)) { dev = d; break; }
@@ -88,17 +77,10 @@ public final class RawDongle {
         if (c == null) return false;
         if (!c.claimInterface(in0, true)) { c.close(); return false; }
         this.conn = c; this.iface = in0;
-        startReader();
         return true;
     }
 
     public synchronized void close() {
-        running = false;
-        if (reader != null) {
-            try { reader.interrupt(); } catch (Throwable ignore) {}
-            try { reader.join(600); } catch (InterruptedException ignore) {}
-            reader = null;
-        }
         if (conn != null) {
             try { if (iface != null) conn.releaseInterface(iface); } catch (Throwable ignore) {}
             try { conn.close(); } catch (Throwable ignore) {}
@@ -106,38 +88,6 @@ public final class RawDongle {
         conn = null; iface = null;
     }
 
-    private void startReader() {
-        running = true;
-        reader = new Thread(() -> {
-            ByteArrayOutputStream acc = new ByteArrayOutputStream();
-            int curSeq = -1, needTotal = -1;
-            byte[] buf = new byte[64];
-            while (running) {
-                UsbDeviceConnection c = conn;
-                UsbEndpoint in = epIn;
-                if (c == null || in == null) break;
-                int n;
-                try { n = c.bulkTransfer(in, buf, buf.length, 250); } catch (Throwable t) { continue; }
-                if (n < 5) continue;
-                int b0 = buf[0] & 0xff;
-                if (b0 != 0x01 && b0 != 0x02) continue;
-                int len = (buf[1] & 0xff) - 3;
-                int useq = buf[2] & 0xff, total = buf[3] & 0xff, idx = buf[4] & 0xff;
-                if (len < 0 || len > 56 || 5 + len > n) continue;
-                if (idx == 1) { acc.reset(); curSeq = useq; needTotal = total; }
-                if (useq != curSeq) continue;
-                acc.write(buf, 5, len);
-                if (idx >= needTotal) {
-                    frames.offer(acc.toByteArray());
-                    acc.reset(); curSeq = -1;
-                }
-            }
-        }, "dongle-reader");
-        reader.setDaemon(true);
-        reader.start();
-    }
-
-    /** Close and reopen the connection (recovery). */
     public synchronized boolean reopen() {
         close();
         try { Thread.sleep(200); } catch (InterruptedException ignore) {}
@@ -148,7 +98,7 @@ public final class RawDongle {
     private int nextSeq() { innerSeq = (innerSeq + 1) & 0xFF; return innerSeq; }
     private int nextUsbSeq() { usbSeq = (usbSeq >= 15) ? 1 : usbSeq + 1; return usbSeq; }
 
-    private byte[] wrapChunk(byte[] payload, int off, int clen, int useq, int total, int idx) {
+    private byte[] chunk(byte[] payload, int off, int clen, int useq, int total, int idx) {
         byte[] pkt = new byte[5 + clen];
         pkt[0] = 0x02; pkt[1] = (byte) (clen + 3);
         pkt[2] = (byte) useq; pkt[3] = (byte) total; pkt[4] = (byte) idx;
@@ -156,24 +106,54 @@ public final class RawDongle {
         return pkt;
     }
 
-    private void sendPayload(byte[] payload) {
-        if (conn == null || epOut == null) return;
+    private int bulkOut(byte[] pkt) {
+        if (conn == null || epOut == null) return -99;
+        return conn.bulkTransfer(epOut, pkt, pkt.length, 1000);
+    }
+
+    /** Write a payload as 1+ chunks (OUT only — no reading in between). */
+    private void writePayload(byte[] payload) {
         int total = Math.max(1, (payload.length + 55) / 56);
         int useq = nextUsbSeq();
         int off = 0;
         for (int idx = 1; idx <= total; idx++) {
             int clen = Math.min(56, payload.length - off);
-            conn.bulkTransfer(epOut, wrapChunk(payload, off, clen, useq, total, idx), 5 + clen, 1000);
+            bulkOut(chunk(payload, off, clen, useq, total, idx));
             off += clen;
             try { Thread.sleep(4); } catch (InterruptedException ignore) {}
         }
     }
 
-    public void sendMode(char modeChar) {
-        sendPayload(new byte[]{'S','T',(byte) nextSeq(),(byte) modeChar,'E','N'});
+    private void writeMode(char modeChar) {
+        writePayload(new byte[]{'S','T',(byte) nextSeq(),(byte) modeChar,'E','N'});
     }
 
-    /** Convert a learned frame ("ST" b 'D' <dur> "EN") to a send frame (adds freqIdx). */
+    /** Read + reassemble ONE inner payload (IN only). null on timeout. */
+    private byte[] readFrame(int timeoutMs) {
+        if (conn == null || epIn == null) return null;
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        ByteArrayOutputStream acc = new ByteArrayOutputStream();
+        int curSeq = -1, needTotal = -1;
+        byte[] buf = new byte[64];
+        while (System.currentTimeMillis() < deadline) {
+            int to = (int) Math.max(1, deadline - System.currentTimeMillis());
+            int n;
+            try { n = conn.bulkTransfer(epIn, buf, buf.length, Math.min(to, 500)); }
+            catch (Throwable t) { return null; }
+            if (n < 5) continue;
+            int b0 = buf[0] & 0xff;
+            if (b0 != 0x01 && b0 != 0x02) continue;
+            int len = (buf[1] & 0xff) - 3;
+            int useq = buf[2] & 0xff, total = buf[3] & 0xff, idx = buf[4] & 0xff;
+            if (len < 0 || len > 56 || 5 + len > n) continue;
+            if (idx == 1) { acc.reset(); curSeq = useq; needTotal = total; }
+            if (useq != curSeq) continue;
+            acc.write(buf, 5, len);
+            if (idx >= needTotal) return acc.toByteArray();
+        }
+        return null;
+    }
+
     public byte[] buildSendFrame(byte[] learned, int freqIdx) {
         if (learned == null || learned.length < 6) return null;
         int durLen = learned.length - 6;
@@ -186,101 +166,71 @@ public final class RawDongle {
         return inner;
     }
 
-    // ---- high-level ops (connection stays open; reader keeps draining) ----
+    // ---- high-level ops (strict half-duplex) ----
 
-    /** Learn one IR signal. Returns the inner learned payload ("ST" b 'D' <dur> "EN"). */
+    /** Learn one IR signal. Returns inner learned payload ("ST" b 'D' <dur> "EN"), or null. */
     public byte[] learn(int timeoutMs) {
-        frames.clear();
-        sendMode('L');
-        try { Thread.sleep(150); } catch (InterruptedException ignore) {}
-        sendMode('R');
+        writeMode('L'); readFrame(500);   // ack
+        writeMode('R'); readFrame(500);   // ack
         long deadline = System.currentTimeMillis() + timeoutMs;
-        byte[] result = null;
         while (System.currentTimeMillis() < deadline) {
-            byte[] f;
-            try { f = frames.poll(Math.max(1, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS); }
-            catch (InterruptedException e) { break; }
-            if (f != null && f.length >= 4 && f[3] == 0x44) { result = f; break; } // 'D' = IR data
+            byte[] f = readFrame((int) Math.max(1, deadline - System.currentTimeMillis()));
+            if (f != null && f.length >= 4 && f[3] == 0x44) return f;  // 'D' = IR data
         }
-        try { Thread.sleep(80); } catch (InterruptedException ignore) {}
-        sendMode('L'); // return to idle, like ZaZa
-        return result;
+        return null;
     }
 
-    /** Transmit a learned payload (rebuilds as a send frame first). */
-    public void send(byte[] learnedPayload) {
-        byte[] frame = buildSendFrame(learnedPayload, 0); // 0 = 38 kHz
+    /** Transmit a learned payload. */
+    public boolean send(byte[] learnedPayload) {
+        byte[] frame = buildSendFrame(learnedPayload, 0);
         lastSendFrame = frame;
-        if (frame == null) return;
-        sendMode('S');
-        try { Thread.sleep(120); } catch (InterruptedException ignore) {}
-        sendPayload(frame);
-        try { Thread.sleep(150); } catch (InterruptedException ignore) {}
-        // Sending wedges the in-process USB state; fully reset the connection afterwards
-        // (equivalent to an app restart) so the next operation starts clean.
-        reopen();
+        if (frame == null) return false;
+        writeMode('S'); readFrame(400);     // ack
+        writePayload(frame);                // all chunks OUT, no concurrent reads
+        byte[] resp = readFrame(1500);      // transmit ack
+        return true;
     }
 
-    private byte[] wrap1(byte[] payload) {
-        return wrapChunk(payload, 0, payload.length, nextUsbSeq(), 1, 1);
-    }
-    private int bulkOut(byte[] pkt) {
-        if (conn == null || epOut == null) return -99;
-        return conn.bulkTransfer(epOut, pkt, pkt.length, 1000);
+    public byte[] learnVerbose(int timeoutMs, List<String> log) {
+        writeMode('L'); byte[] a1 = readFrame(600);
+        writeMode('R'); byte[] a2 = readFrame(600);
+        log.add("handshake L ack=" + (a1 == null ? "none" : hex(a1)) + " R ack=" + (a2 == null ? "none" : hex(a2)));
+        log.add("press the remote now...");
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            byte[] f = readFrame((int) Math.max(1, deadline - System.currentTimeMillis()));
+            if (f == null) continue;
+            if (f.length >= 4 && f[3] == 0x44) { log.add("got IR frame: " + f.length + " bytes"); return f; }
+        }
+        log.add("(no IR frame)");
+        return null;
     }
 
-    /** Verbose send: logs mode cmd, each chunk, the dongle's response, and whether the
-     *  connection is still alive afterwards (probe). NO reopen — pure diagnosis. */
     public void sendVerbose(byte[] learnedPayload, List<String> log) {
         byte[] frame = buildSendFrame(learnedPayload, 0);
         lastSendFrame = frame;
         if (frame == null) { log.add("no send frame"); return; }
-        frames.clear();
-        int r = bulkOut(wrap1(new byte[]{'S','T',(byte) nextSeq(),'S','E','N'}));
+        int r = bulkOut(chunk(new byte[]{'S','T',(byte) nextSeq(),'S','E','N'}, 0, 6, nextUsbSeq(), 1, 1));
         log.add("mode S ret=" + r);
-        try { Thread.sleep(120); } catch (InterruptedException ignore) {}
+        readFrame(400);
         int total = Math.max(1, (frame.length + 55) / 56);
-        int useq = nextUsbSeq();
-        int off = 0;
+        int useq = nextUsbSeq(), off = 0;
         for (int idx = 1; idx <= total; idx++) {
             int clen = Math.min(56, frame.length - off);
-            r = bulkOut(wrapChunk(frame, off, clen, useq, total, idx));
-            log.add("chunk " + idx + "/" + total + " ret=" + r);
+            r = bulkOut(chunk(frame, off, clen, useq, total, idx));
             off += clen;
             try { Thread.sleep(4); } catch (InterruptedException ignore) {}
         }
-        try { Thread.sleep(150); } catch (InterruptedException ignore) {}
-        byte[] ack = frames.poll();
-        log.add("send response: " + (ack == null ? "none" : hex(ack)));
-        // probe: is the connection still alive after the send?
-        frames.clear();
-        r = bulkOut(wrap1(new byte[]{'S','T',(byte) nextSeq(),'L','E','N'}));
-        log.add("probe L ret=" + r);
-        byte[] la = null;
-        try { la = frames.poll(800, TimeUnit.MILLISECONDS); } catch (InterruptedException ignore) {}
-        log.add("probe L ack: " + (la == null ? "none (connection dead)" : hex(la) + " (alive)"));
+        log.add("sent " + total + " chunks");
+        byte[] resp = readFrame(1500);
+        log.add("send response: " + (resp == null ? "none" : hex(resp)));
+        byte[] probe = pokeProbe();
+        log.add("probe after send: " + (probe == null ? "none (dead)" : hex(probe) + " (alive)"));
     }
 
-    /** Verbose learn for diagnostics. */
-    public byte[] learnVerbose(int timeoutMs, List<String> log) {
-        frames.clear();
-        sendMode('L');
-        try { Thread.sleep(150); } catch (InterruptedException ignore) {}
-        sendMode('R');
-        log.add("sent L+R handshake; waiting for IR (press the remote)...");
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        int seen = 0;
-        while (System.currentTimeMillis() < deadline) {
-            byte[] f;
-            try { f = frames.poll(Math.max(1, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS); }
-            catch (InterruptedException e) { break; }
-            if (f == null) continue;
-            seen++;
-            if (seen <= 6) log.add("frame " + hex(f));
-            if (f.length >= 4 && f[3] == 0x44) { log.add("got IR frame: " + f.length + " bytes"); return f; }
-        }
-        log.add("(no IR frame; frames seen=" + seen + ")");
-        return null;
+    private byte[] pokeProbe() {
+        bulkOut(chunk(new byte[]{'S','T',(byte) nextSeq(),'L','E','N'}, 0, 6, nextUsbSeq(), 1, 1));
+        return readFrame(800);
     }
 
     private static String hex(byte[] a) {
