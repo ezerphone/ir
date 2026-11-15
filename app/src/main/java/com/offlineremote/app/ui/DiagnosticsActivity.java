@@ -112,8 +112,7 @@ public class DiagnosticsActivity extends AppCompatActivity {
                         line("-> requesting permission...");
                         d.requestPermission(dev);
                     } else {
-                        boolean ok = d.connect(dev);
-                        line("connect(): " + ok + "  isConnected=" + d.isConnected());
+                        line("permission OK (use למד/שדר for the clean-room driver)");
                     }
                 }
             } catch (Throwable t) {
@@ -145,10 +144,12 @@ public class DiagnosticsActivity extends AppCompatActivity {
             try {
                 if (!ensureRawOpen()) { line("raw open failed (permission? dongle attached?)"); return; }
                 line("point the ORIGINAL remote at the dongle and press ONE button (20s)...");
-                byte[] p = App.get().raw().learnOnce(20000);
-                if (p == null) { line("no IR captured (null)"); return; }
+                java.util.List<String> lg = new java.util.ArrayList<>();
+                byte[] p = App.get().raw().learnVerbose(20000, lg);
+                for (String s : lg) line("  " + s);
+                if (p == null) { line("no IR captured"); return; }
                 App.get().lastLearnedPayload = p;
-                line("LEARNED ok: " + p.length + " bytes. Now aim the dongle at the device and press שדר.");
+                line("LEARNED ok: " + p.length + " bytes. Aim the dongle at the device and press שדר.");
             } catch (Throwable t) {
                 line("LEARN ERROR: " + t);
             }

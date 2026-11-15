@@ -203,6 +203,45 @@ public final class RawDongle {
         return readLearned(timeoutMs);
     }
 
+    /** Verbose learn: logs handshake ACKs and every RX packet; returns learned payload or null. */
+    public byte[] learnVerbose(int timeoutMs, List<String> log) {
+        byte[] lp = modePacket('L');
+        int r1 = sendRaw(lp);
+        byte[] a1 = readBulk(700);
+        log.add("TX L ret=" + r1 + " ack=" + (a1 == null ? "none" : hex(a1)));
+        byte[] rp = modePacket('R');
+        int r2 = sendRaw(rp);
+        byte[] a2 = readBulk(700);
+        log.add("TX R ret=" + r2 + " ack=" + (a2 == null ? "none" : hex(a2)));
+        log.add("waiting for IR (press the remote now)...");
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        java.io.ByteArrayOutputStream acc = new java.io.ByteArrayOutputStream();
+        int curSeq = -1, needTotal = -1, rx = 0;
+        while (System.currentTimeMillis() < deadline) {
+            byte[] p = readBulk(1500);
+            if (p == null) continue;
+            rx++;
+            if (rx <= 8) log.add("RX " + hex(p));
+            if (p.length < 5 || (p[0] & 0xff) != 0x01) continue;
+            int len = (p[1] & 0xff) - 3;
+            int useq = p[2] & 0xff, total = p[3] & 0xff, idx = p[4] & 0xff;
+            if (len < 0 || len > 56 || 5 + len > p.length) continue;
+            if (idx == 1) { acc.reset(); curSeq = useq; needTotal = total; }
+            if (useq != curSeq) continue;
+            acc.write(p, 5, len);
+            if (idx >= needTotal) {
+                byte[] payload = acc.toByteArray();
+                if (payload.length >= 4 && payload[3] == 0x44) {
+                    log.add("got IR frame: " + payload.length + " bytes");
+                    return payload;
+                }
+                acc.reset(); curSeq = -1;
+            }
+        }
+        log.add("(no IR frame; total RX packets=" + rx + ")");
+        return null;
+    }
+
     /** Put dongle in send mode and transmit a captured payload. */
     public void replayPayload(byte[] payload) {
         sendRaw(modePacket('S')); drain(200);
