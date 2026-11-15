@@ -18,7 +18,10 @@ import com.icontrol.dev.IControlIRData;
 import com.offlineremote.app.App;
 import com.offlineremote.app.R;
 import com.offlineremote.app.usb.DongleManager;
+import com.offlineremote.app.usb.RawDongle;
 import com.tiqiaa.local.LocalIrDb;
+
+import java.util.List;
 
 /**
  * On-device diagnostics: native-lib load, embedded DB contents, dongle connection, and a
@@ -130,25 +133,23 @@ public class DiagnosticsActivity extends AppCompatActivity {
 
     private void learnTest() {
         App.get().io().execute(() -> {
-            line("\n=== LEARN TEST (10s) ===");
+            line("\n=== RAW RECORD (our own driver, no Tiqiaa libs) ===");
+            RawDongle raw = new RawDongle(this);
             try {
-                DongleManager d = App.get().dongle();
-                if (!d.isConnected()) {
-                    UsbDevice dev = d.findDevice();
-                    if (dev != null && d.hasPermission(dev)) d.connect(dev);
+                // Release the Tiqiaa stack's claim on the interface first.
+                try { App.get().dongle().disconnect(); } catch (Throwable ignore) {}
+                if (!raw.open()) {
+                    line("raw open failed (permission? dongle attached?)");
+                    return;
                 }
-                if (!d.isConnected()) { line("not connected — cannot learn"); return; }
-                line("point remote at dongle, press a button NOW...");
-                IControlIRData got = d.learn(10000);
-                if (got == null) {
-                    line("learn: null (לא נקלט אות)");
-                } else {
-                    byte[] data = got.a();
-                    line("learn OK: type=" + got.f() + " freq=" + got.b()
-                            + " dataLen=" + (data == null ? 0 : data.length));
-                }
+                line("dongle opened (raw). Sending learn command 'ST<seq>R EN'.");
+                line(">>> POINT A PHYSICAL REMOTE AT THE DONGLE AND PRESS BUTTONS for 15s <<<");
+                List<String> rec = raw.recordLearn(15000);
+                for (String s : rec) line(s);
             } catch (Throwable t) {
-                line("LEARN ERROR: " + t);
+                line("RAW ERROR: " + t);
+            } finally {
+                raw.close();
             }
         });
     }

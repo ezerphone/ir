@@ -24,7 +24,7 @@
             android:layout_height="wrap_content" android:text="הרץ אבחון" />
         <Button android:id="@+id/btnLearn" style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
-            android:layout_marginStart="6dp" android:text="בדיקת למידה" />
+            android:layout_marginStart="6dp" android:text="הקלט מהדונגל" />
         <Button android:id="@+id/btnCopy" style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginStart="6dp" android:text="העתק" />
