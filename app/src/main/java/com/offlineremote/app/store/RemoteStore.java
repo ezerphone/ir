@@ -54,6 +54,15 @@ public final class RemoteStore {
         save();
     }
 
+    /** Persist changes made to a remote already in the store (e.g. rename). */
+    public synchronized void update(SavedRemote r) {
+        ensureLoaded();
+        for (int i = 0; i < remotes.size(); i++) {
+            if (remotes.get(i).id.equals(r.id)) { remotes.set(i, r); break; }
+        }
+        save();
+    }
+
     public synchronized void remove(String id) {
         ensureLoaded();
         for (int i = 0; i < remotes.size(); i++) {

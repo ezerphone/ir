@@ -28,6 +28,14 @@ android {
         }
     }
 
+    // CI screenshot build (-PnoNative): drop the ARM-only native libs so the APK installs
+    // on the x86_64 emulator. The screens being captured never load them.
+    packaging {
+        if (project.hasProperty('noNative')) {
+            jniLibs { excludes += ['**/*.so'] }
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17

@@ -1,5 +1,7 @@
 package com.offlineremote.app.ui;
 
+import android.app.AlertDialog;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -7,23 +9,18 @@ import android.content.IntentFilter;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
-import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.appbar.MaterialToolbar;
 import com.offlineremote.app.App;
 import com.offlineremote.app.R;
 import com.offlineremote.app.model.SavedRemote;
@@ -33,15 +30,15 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity {
+/** Home: dongle status, the user's remotes as cards, add / learn. */
+public class MainActivity extends BaseActivity {
+
+    public static final String EXTRA_SAVED = "saved_name";
 
     private View statusDot;
     private TextView statusText;
-    private Button btnConnect;
-    private RecyclerView list;
-    private TextView empty;
     private RemoteListAdapter adapter;
-
+    private TextView empty;
     private ActivityResultLauncher<String> exportLauncher;
     private ActivityResultLauncher<String[]> importLauncher;
 
@@ -49,8 +46,7 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (DongleManager.ACTION_USB_PERMISSION.equals(action)) {
-                boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
-                if (granted) tryConnect();
+                if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) tryConnect();
                 else refreshStatus();
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
                 tryConnect();
@@ -65,33 +61,49 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         setContentView(R.layout.activity_main);
-        MaterialToolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
+        TopBar bar = topBar().title("השלטים שלי");
+        bar.rotate(true);
+        bar.addEnd(R.drawable.ic_plus, v -> startActivity(new Intent(this, AddDeviceActivity.class)));
+        bar.addEnd(R.drawable.ic_more, v -> showMenu());
 
         statusDot = findViewById(R.id.statusDot);
         statusText = findViewById(R.id.statusText);
-        btnConnect = findViewById(R.id.btnConnect);
-        list = findViewById(R.id.list);
         empty = findViewById(R.id.empty);
+        findViewById(R.id.statusLine).setOnClickListener(v -> tryConnect());
 
+        RecyclerView list = findViewById(R.id.list);
         list.setLayoutManager(new GridLayoutManager(this, 2));
         adapter = new RemoteListAdapter(r -> {
             Intent i = new Intent(this, RemoteActivity.class);
             i.putExtra(RemoteActivity.EXTRA_ID, r.id);
             startActivity(i);
-        }, r -> confirmDelete(r));
+        }, this::cardMenu);
         list.setAdapter(adapter);
 
-        btnConnect.setOnClickListener(v -> tryConnect());
-        findViewById(R.id.btnAdd).setOnClickListener(v ->
-                startActivity(new Intent(this, AddDeviceActivity.class)));
-        findViewById(R.id.btnLearn).setOnClickListener(v ->
-                startActivity(new Intent(this, LearnActivity.class)));
+        findViewById(R.id.btnAdd).setOnClickListener(v -> startActivity(new Intent(this, AddDeviceActivity.class)));
+        findViewById(R.id.btnLearn).setOnClickListener(v -> startActivity(new Intent(this, LearnActivity.class)));
 
-        exportLauncher = registerForActivityResult(
-                new ActivityResultContracts.CreateDocument("application/json"), this::doExport);
-        importLauncher = registerForActivityResult(
-                new ActivityResultContracts.OpenDocument(), this::doImport);
+        exportLauncher = registerForActivityResult(new ActivityResultContracts.CreateDocument("application/json"), this::doExport);
+        importLauncher = registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::doImport);
+        showSaved(getIntent());
+        DemoMode.handle(this, getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        showSaved(intent);
+        DemoMode.handle(this, intent);
+        applyRotation(false);
+        refreshList();
+    }
+
+    private void showSaved(Intent i) {
+        String name = i == null ? null : i.getStringExtra(EXTRA_SAVED);
+        if (name != null) {
+            i.removeExtra(EXTRA_SAVED);
+            getWindow().getDecorView().post(() -> toast("נשמר: " + name));
+        }
     }
 
     @Override
@@ -118,11 +130,12 @@ public class MainActivity extends AppCompatActivity {
         empty.setVisibility(all.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
+    // ---------------- dongle ----------------
+
     private UsbDevice findDongle() {
         UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
         if (um == null) return null;
-        java.util.HashMap<String, UsbDevice> list = um.getDeviceList();
-        if (list != null) for (UsbDevice d : list.values()) if (DongleManager.matches(d)) return d;
+        for (UsbDevice d : um.getDeviceList().values()) if (DongleManager.matches(d)) return d;
         return null;
     }
 
@@ -131,10 +144,10 @@ public class MainActivity extends AppCompatActivity {
         UsbDevice dev = findDongle();
         if (dev == null || um == null) { refreshStatus(); return; }
         if (!um.hasPermission(dev)) {
-            statusText.setText(R.string.dongle_no_permission);
-            int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT;
-            if (android.os.Build.VERSION.SDK_INT >= 23) flags |= android.app.PendingIntent.FLAG_IMMUTABLE;
-            android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(this, 0,
+            setStatus(false, getString(R.string.dongle_no_permission));
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+            PendingIntent pi = PendingIntent.getBroadcast(this, 0,
                     new Intent(DongleManager.ACTION_USB_PERMISSION).setPackage(getPackageName()), flags);
             um.requestPermission(dev, pi);
             return;
@@ -146,64 +159,73 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshStatus() {
-        boolean connected = App.get().raw().isOpen();
-        UsbDevice dev = findDongle();
-        if (connected) {
-            statusDot.setBackgroundColor(ContextCompat.getColor(this, R.color.primary));
-            statusText.setText(R.string.dongle_connected);
-            btnConnect.setVisibility(View.GONE);
-        } else if (dev == null) {
-            statusDot.setBackgroundColor(ContextCompat.getColor(this, R.color.danger));
-            statusText.setText(R.string.dongle_missing);
-            btnConnect.setVisibility(View.GONE);
-        } else {
-            statusDot.setBackgroundColor(ContextCompat.getColor(this, R.color.danger));
-            statusText.setText(R.string.dongle_no_permission);
-            btnConnect.setVisibility(View.VISIBLE);
-        }
+        if (App.get().raw().isOpen()) setStatus(true, getString(R.string.dongle_connected));
+        else if (findDongle() == null) setStatus(false, getString(R.string.dongle_missing));
+        else setStatus(false, getString(R.string.dongle_no_permission) + " — לחץ לחיבור");
+    }
+
+    private void setStatus(boolean ok, String text) {
+        statusDot.setBackgroundResource(ok ? R.drawable.bg_dot_green : R.drawable.bg_dot_red);
+        statusText.setText(text);
+    }
+
+    // ---------------- menus ----------------
+
+    private void showMenu() {
+        String[] items = {"לוג שגיאות", "ייצוא קודים", "ייבוא קודים"};
+        AlertDialog d = new AlertDialog.Builder(this).setItems(items, (dlg, which) -> {
+            if (which == 0) startActivity(new Intent(this, ErrorLogActivity.class));
+            else if (which == 1) exportLauncher.launch("offline-ir-remotes.json");
+            else importLauncher.launch(new String[]{"application/json", "*/*"});
+        }).create();
+        d.show();
+        rotateDialog(d);
+    }
+
+    private void cardMenu(SavedRemote r) {
+        String[] items = {"שנה שם", "מחק"};
+        AlertDialog d = new AlertDialog.Builder(this).setTitle(r.name).setItems(items, (dlg, which) -> {
+            if (which == 0) rename(r);
+            else confirmDelete(r);
+        }).create();
+        d.show();
+        rotateDialog(d);
+    }
+
+    private void rename(SavedRemote r) {
+        EditText in = new EditText(this);
+        in.setText(r.name);
+        in.setSelection(in.getText().length());
+        int p = Ui.dp(this, 20);
+        in.setPadding(p, p, p, p);
+        AlertDialog d = new AlertDialog.Builder(this).setTitle("שם השלט").setView(in)
+                .setPositiveButton("שמור", (dlg, w) -> {
+                    String n = in.getText().toString().trim();
+                    if (!n.isEmpty()) { r.name = n; App.get().store().update(r); refreshList(); }
+                })
+                .setNegativeButton("ביטול", null).create();
+        d.show();
+        rotateDialog(d);
     }
 
     private void confirmDelete(SavedRemote r) {
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setMessage(r.name)
-                .setPositiveButton(android.R.string.ok, (d, w) -> {
-                    App.get().store().remove(r.id);
-                    refreshList();
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
+        AlertDialog d = new AlertDialog.Builder(this).setMessage("למחוק את \"" + r.name + "\"?")
+                .setPositiveButton("מחק", (dlg, w) -> { App.get().store().remove(r.id); refreshList(); })
+                .setNegativeButton("ביטול", null).create();
+        d.show();
+        rotateDialog(d);
     }
 
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        getMenuInflater().inflate(R.menu.main, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        int id = item.getItemId();
-        if (id == R.id.action_errorlog) {
-            startActivity(new Intent(this, ErrorLogActivity.class));
-            return true;
-        } else if (id == R.id.action_export) {
-            exportLauncher.launch("offline-ir-remotes.json");
-            return true;
-        } else if (id == R.id.action_import) {
-            importLauncher.launch(new String[]{"application/json", "*/*"});
-            return true;
-        }
-        return super.onOptionsItemSelected(item);
-    }
+    // ---------------- export / import ----------------
 
     private void doExport(Uri uri) {
         if (uri == null) return;
         App.get().io().execute(() -> {
             try (OutputStream os = getContentResolver().openOutputStream(uri)) {
                 App.get().store().exportTo(os);
-                toast(getString(R.string.export));
+                runOnUiThread(() -> toast("הקודים יוצאו"));
             } catch (Exception e) {
-                toast("export failed: " + e.getMessage());
+                runOnUiThread(() -> toast("הייצוא נכשל"));
             }
         });
     }
@@ -213,15 +235,10 @@ public class MainActivity extends AppCompatActivity {
         App.get().io().execute(() -> {
             try (InputStream is = getContentResolver().openInputStream(uri)) {
                 int n = App.get().store().importFrom(is);
-                toast("+" + n);
-                runOnUiThread(this::refreshList);
+                runOnUiThread(() -> { toast("יובאו " + n + " שלטים"); refreshList(); });
             } catch (Exception e) {
-                toast("import failed: " + e.getMessage());
+                runOnUiThread(() -> toast("הייבוא נכשל"));
             }
         });
-    }
-
-    private void toast(String s) {
-        runOnUiThread(() -> Toast.makeText(this, s, Toast.LENGTH_SHORT).show());
     }
 }

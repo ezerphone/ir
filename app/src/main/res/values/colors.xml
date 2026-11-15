@@ -1,18 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#07090E</color>
-    <color name="surface">#0E1420</color>
-    <color name="surface2">#161D2A</color>
-    <color name="surface3">#1E2736</color>
-    <color name="line">#28323F</color>
-    <color name="primary">#27C7BD</color>
-    <color name="primaryDark">#1FA89F</color>
-    <color name="onPrimary">#06211F</color>
-    <color name="accent2">#3B82F6</color>
-    <color name="textPrimary">#E9EEF5</color>
-    <color name="textSecondary">#8A96A6</color>
-    <color name="danger">#EF4444</color>
-    <color name="power">#EF4444</color>
-    <color name="keyBg">#1E2736</color>
-    <color name="keyBgPressed">#27C7BD</color>
+    <!-- ZaZa-style light palette (from the approved mockup) -->
+    <color name="bg">#EEF1F5</color>
+    <color name="card">#FFFFFF</color>
+    <color name="line">#E2E7EE</color>
+    <color name="ink">#39414F</color>
+    <color name="sub">#9AA3B2</color>
+    <color name="icon">#9099A8</color>
+    <color name="blue">#4A90D9</color>
+    <color name="blue2">#3B6FAC</color>
+    <color name="prev">#7AA7DA</color>
+    <color name="power">#E5433B</color>
+    <color name="green">#35C08A</color>
+    <color name="okText">#35A06B</color>
+    <color name="failText">#D9534F</color>
+    <color name="tile">#F1F4F8</color>
+    <color name="gradTop">#F4F6F9</color>
+    <color name="gradBottom">#E9EDF2</color>
+    <color name="tempLabel">#AEB6C2</color>
+    <color name="ripple">#1F4A90D9</color>
+    <!-- legacy names still referenced by some views -->
+    <color name="textPrimary">#39414F</color>
+    <color name="textSecondary">#9AA3B2</color>
+    <color name="primary">#4A90D9</color>
+    <color name="danger">#E5433B</color>
 </resources>

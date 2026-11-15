@@ -1,93 +1,113 @@
 package com.offlineremote.app.ui;
 
+import android.app.AlertDialog;
+import android.content.Intent;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
 import android.view.View;
-import android.widget.ArrayAdapter;
-import android.widget.Button;
+import android.view.ViewGroup;
 import android.widget.FrameLayout;
-import android.widget.Spinner;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.recyclerview.widget.GridLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
-
-import com.google.android.material.appbar.MaterialToolbar;
 import com.offlineremote.app.App;
 import com.offlineremote.app.R;
-import com.offlineremote.app.ir.IrSignal;
 import com.offlineremote.app.model.Code;
 import com.offlineremote.app.model.IrKey;
+import com.offlineremote.app.model.PreviewSession;
 import com.offlineremote.app.model.SavedRemote;
 import com.offlineremote.app.sources.SmartIrSource;
+import com.offlineremote.app.usb.RawDongle;
+import com.offlineremote.app.util.ErrorLog;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-public class RemoteActivity extends AppCompatActivity {
+/**
+ * A remote, ZaZa style. In matching mode (adding from the library) it shows the blue
+ * banner, the "(i/n)" counter and the הקודם / עבד! / הבא bar; otherwise it is a saved remote.
+ * Layouts: AC dial (SmartIR), LED colour panel, and a TV-style layout for everything else.
+ */
+public class RemoteActivity extends BaseActivity {
 
     public static final String EXTRA_ID = "remote_id";
     public static final String EXTRA_PREVIEW = "preview";
 
     private SavedRemote remote;
     private FrameLayout content;
-    private TextView note;
-    private MaterialToolbar toolbar;
+    private TopBar bar;
     private boolean preview;
-    private com.offlineremote.app.model.PreviewSession session;
+    private PreviewSession session;
     private android.view.GestureDetector gesture;
 
     // AC state
     private SmartIrSource.AcSpec acSpec;
     private String acMode, acFan;
     private int acTemp;
-    private TextView tempText;
+    private boolean acOn;
+    private DialView dial;
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         setContentView(R.layout.activity_remote);
-        toolbar = findViewById(R.id.toolbar);
         content = findViewById(R.id.content);
-        note = findViewById(R.id.note);
-        toolbar.setNavigationOnClickListener(v -> finish());
-
+        bar = topBar();
         preview = getIntent().getBooleanExtra(EXTRA_PREVIEW, false);
-
-        // swipe between sibling remotes (preview only)
-        gesture = new android.view.GestureDetector(this, new android.view.GestureDetector.SimpleOnGestureListener() {
-            @Override public boolean onFling(android.view.MotionEvent e1, android.view.MotionEvent e2, float vx, float vy) {
-                if (!preview || e1 == null || e2 == null) return false;
-                float dx = e2.getX() - e1.getX(), dy = e2.getY() - e1.getY();
-                if (Math.abs(dx) > Math.abs(dy) * 1.5f && Math.abs(dx) > 120 && Math.abs(vx) > 200) {
-                    if (dx < 0) goTo(session.index + 1); else goTo(session.index - 1);
-                    return true;
-                }
-                return false;
-            }
-        });
 
         if (preview) {
             session = App.get().preview;
             if (session == null) { finish(); return; }
-            View bar = findViewById(R.id.previewBar);
-            bar.setVisibility(View.VISIBLE);
-            findViewById(R.id.btnSavePreview).setOnClickListener(v -> savePreview());
+            if ("ac".equals(session.category)) { bar.rotate(true); bar.back(false); }
+            else { bar.back(true); bar.rotate(false); }
+
+            View banner = findViewById(R.id.banner);
+            banner.setVisibility(View.VISIBLE);
+            ((TextView) findViewById(R.id.bannerText)).setText("כוון את הטלפון אל " + session.target);
+            findViewById(R.id.bannerClose).setOnClickListener(v -> banner.setVisibility(View.GONE));
+
+            findViewById(R.id.matchbar).setVisibility(View.VISIBLE);
+            findViewById(R.id.btnPrev).setOnClickListener(v -> goTo(session.index - 1));
+            findViewById(R.id.btnNext).setOnClickListener(v -> goTo(session.index + 1));
+            findViewById(R.id.btnWorked).setOnClickListener(v -> saveWorked());
+
+            gesture = new android.view.GestureDetector(this, new android.view.GestureDetector.SimpleOnGestureListener() {
+                @Override public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
+                    if (e1 == null || e2 == null) return false;
+                    float dx = e2.getX() - e1.getX(), dy = e2.getY() - e1.getY();
+                    if (Math.abs(dx) > Math.abs(dy) * 1.5f && Math.abs(dx) > 140 && Math.abs(vx) > 250) {
+                        goTo(session.index + (dx < 0 ? 1 : -1));
+                        return true;
+                    }
+                    return false;
+                }
+            });
             loadCurrent();
         } else {
-            String id = getIntent().getStringExtra(EXTRA_ID);
-            remote = App.get().store().get(id);
+            bar.back(true);
+            bar.rotate(false);
+            remote = App.get().store().get(getIntent().getStringExtra(EXTRA_ID));
             if (remote == null) { finish(); return; }
             showRemote(remote);
         }
     }
 
     @Override
-    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+    public boolean dispatchTouchEvent(MotionEvent ev) {
         if (gesture != null) gesture.onTouchEvent(ev);
         return super.dispatchTouchEvent(ev);
     }
+
+    // ---------------- matching ----------------
 
     private void goTo(int idx) {
         if (session == null || idx < 0 || idx >= session.size() || idx == session.index) return;
@@ -96,20 +116,27 @@ public class RemoteActivity extends AppCompatActivity {
     }
 
     private void loadCurrent() {
-        toolbar.setTitle("טוען...");
+        bar.title("טוען...");
         App.get().io().execute(() -> {
             final SavedRemote r = session.current();
             runOnUiThread(() -> showRemote(r));
         });
     }
 
-    private void savePreview() {
+    private void updateMatchBar() {
+        findViewById(R.id.btnPrev).setAlpha(session.hasPrev() ? 1f : 0.45f);
+        findViewById(R.id.btnNext).setAlpha(session.hasNext() ? 1f : 0.45f);
+    }
+
+    private void saveWorked() {
         if (remote == null) return;
+        remote.name = Icons.noun(remote.category, session.categoryHe);
+        remote.brand = session.brand;
         App.get().store().add(remote);
         App.get().preview = null;
-        Toast.makeText(this, "נשמר: " + remote.name, Toast.LENGTH_SHORT).show();
-        android.content.Intent i = new android.content.Intent(this, MainActivity.class);
-        i.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        Intent i = new Intent(this, MainActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        i.putExtra(MainActivity.EXTRA_SAVED, remote.name);
         startActivity(i);
         finish();
     }
@@ -117,33 +144,123 @@ public class RemoteActivity extends AppCompatActivity {
     private void showRemote(SavedRemote r) {
         remote = r;
         content.removeAllViews();
-        String title = r.name;
-        if (preview && session != null && session.size() > 1)
-            title = r.name + "  (" + (session.index + 1) + "/" + session.size() + ")";
-        toolbar.setTitle(title);
-
-        if (r.isAc() && "smartir".equals(r.source)) {
-            note.setText("SmartIR • אם לא עובד, נסה שלט אחר (החלקה) או למידה");
-            buildAc();
+        if (preview) {
+            bar.title("התאמה · " + session.brand + " " + session.categoryHe
+                    + " (" + (session.index + 1) + "/" + session.size() + ")");
+            updateMatchBar();
         } else {
-            note.setText("");
-            buildButtons();
+            bar.title(r.name + (r.brand != null && !r.brand.isEmpty() ? " · " + r.brand : ""));
+        }
+        if (r.isAc() && "smartir".equals(r.source)) buildAc();
+        else if ("led".equals(r.category)) buildLed(r.keys);
+        else buildTv(r.keys);
+    }
+
+    // ---------------- sending ----------------
+
+    private void send(View v, Code c) {
+        if (v != null) v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+        if (c == null) return;
+        App.get().io().execute(() -> {
+            RawDongle raw = App.get().raw();
+            if (!raw.isOpen()) raw.open();
+            boolean open = raw.isOpen(), ok = false;
+            if (open) {
+                ok = raw.transmit(c.freq, c.kind == Code.Kind.NATIVE ? c.nativeBytes : null, c.micros);
+            }
+            if (!open) ErrorLog.add(this, "SEND dongle not open");
+            else if (!ok) ErrorLog.add(this, "SEND failed");
+            final boolean fOpen = open, fOk = ok;
+            runOnUiThread(() -> {
+                if (!fOpen) toast(getString(R.string.dongle_missing));
+                else if (!fOk) toast(getString(R.string.send_failed));
+            });
+        });
+    }
+
+    private ScrollView area(LinearLayout column, int padTop) {
+        ScrollView sv = new ScrollView(this);
+        sv.setFillViewport(true);
+        sv.setBackgroundResource(R.drawable.bg_area);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setGravity(Gravity.CENTER_HORIZONTAL);
+        int p = Ui.dp(this, 16);
+        column.setPadding(p, Ui.dp(this, padTop), p, p);
+        sv.addView(column, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        content.addView(sv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        return sv;
+    }
+
+    private LinearLayout.LayoutParams topMargin(int dp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = Ui.dp(this, dp);
+        return lp;
+    }
+
+    private LinearLayout.LayoutParams fullWidth(int topDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = Ui.dp(this, topDp);
+        return lp;
+    }
+
+    // ---------------- AC (SmartIR) ----------------
+
+    private static String modeHe(String m) {
+        if (m == null) return "";
+        switch (m) {
+            case "cool": return "קירור";
+            case "heat": return "חימום";
+            case "dry": return "ייבוש";
+            case "fan_only": case "fan": return "אוורור";
+            case "auto": case "heat_cool": return "אוטומטי";
+            default: return m;
         }
     }
 
-    // ---------------- AC ----------------
+    private static String fanHe(String f) {
+        if (f == null) return "";
+        switch (f) {
+            case "auto": return "מאוורר: אוטו'";
+            case "low": case "lowest": return "מאוורר: נמוך";
+            case "mid": case "medium": case "middle": return "מאוורר: בינוני";
+            case "high": case "highest": return "מאוורר: גבוה";
+            case "turbo": case "powerful": return "מאוורר: טורבו";
+            case "quiet": case "silent": return "מאוורר: שקט";
+            default: return "מאוורר: " + f;
+        }
+    }
 
     private void buildAc() {
-        View v = getLayoutInflater().inflate(R.layout.view_ac, content, false);
-        content.addView(v);
-        tempText = v.findViewById(R.id.tempText);
-        final Spinner modeSpinner = v.findViewById(R.id.modeSpinner);
-        final Spinner fanSpinner = v.findViewById(R.id.fanSpinner);
-        TextView tempMinus = v.findViewById(R.id.tempMinus);
-        TextView tempPlus = v.findViewById(R.id.tempPlus);
-        TextView powerBtn = v.findViewById(R.id.powerBtn);
-        Button sendBtn = v.findViewById(R.id.sendBtn);
-        sendBtn.setText("שלח מצב");
+        LinearLayout col = new LinearLayout(this);
+        area(col, 6);
+        int side = Ui.dp(this, 2);
+        col.setPadding(Ui.dp(this, 18), Ui.dp(this, 6), Ui.dp(this, 18), Ui.dp(this, 14));
+
+        // MODE (right) ... power (left)
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        FrameLayout modeKey = Ui.key(this, 56, 0, "MODE", 0);
+        ((TextView) modeKey.getChildAt(0)).setTextSize(10);
+        ((TextView) modeKey.getChildAt(0)).setLetterSpacing(0.05f);
+        FrameLayout powerKey = Ui.key(this, 56, R.drawable.ic_power, null, Ui.color(this, R.color.power));
+        top.addView(modeKey);
+        View sp = new View(this);
+        top.addView(sp, new LinearLayout.LayoutParams(0, 1, 1f));
+        top.addView(powerKey);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = Ui.dp(this, 4);
+        col.addView(top, tlp);
+
+        dial = new DialView(this);
+        int screenW = getResources().getDisplayMetrics().widthPixels - Ui.dp(this, 36);
+        int ds = Math.min(Ui.dp(this, 240), screenW);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(ds, ds);
+        dlp.topMargin = side;
+        col.addView(dial, dlp);
+
+        LinearLayout keys = new LinearLayout(this);
+        keys.setOrientation(LinearLayout.HORIZONTAL);
+        col.addView(keys, fullWidth(8));
 
         App.get().io().execute(() -> {
             SmartIrSource.Entry e = new SmartIrSource.Entry();
@@ -151,137 +268,430 @@ public class RemoteActivity extends AppCompatActivity {
             final SmartIrSource.AcSpec spec = App.get().smartIr().loadAc(e);
             runOnUiThread(() -> {
                 acSpec = spec;
-                if (spec == null) { Toast.makeText(this, "load failed", Toast.LENGTH_SHORT).show(); return; }
-                acTemp = Math.max(spec.minT, Math.min(spec.maxT, (spec.minT + spec.maxT) / 2));
-                tempText.setText(acTemp + "°");
+                if (spec == null) { toast("טעינת השלט נכשלה"); return; }
+                List<String> modes = spec.modes.isEmpty() ? java.util.Arrays.asList("cool", "heat") : spec.modes;
+                List<String> fans = spec.fans.isEmpty() ? java.util.Collections.singletonList("auto") : spec.fans;
+                acMode = modes.contains("cool") ? "cool" : modes.get(0);
+                acFan = fans.contains("auto") ? "auto" : fans.get(0);
+                acTemp = (24 >= spec.minT && 24 <= spec.maxT) ? 24 : (spec.minT + spec.maxT) / 2;
+                dial.setRange(spec.minT, spec.maxT);
+                dial.setTemp(acTemp);
 
-                List<String> modes = spec.modes.isEmpty() ? listOf("cool", "heat") : spec.modes;
-                List<String> fans = spec.fans.isEmpty() ? listOf("auto") : spec.fans;
-                acMode = modes.get(0);
-                acFan = fans.get(0);
-                modeSpinner.setAdapter(spinner(modes));
-                fanSpinner.setAdapter(spinner(fans));
+                modeKey.setOnClickListener(v -> {
+                    acMode = modes.get((modes.indexOf(acMode) + 1) % modes.size());
+                    toast(modeHe(acMode));
+                    sendState(v);
+                });
+                powerKey.setOnClickListener(v -> {
+                    if (acOn) { acOn = false; toast("כיבוי"); send(v, App.get().smartIr().acOff(acSpec)); }
+                    else sendState(v);
+                });
+                dial.setListener(new DialView.Listener() {
+                    @Override public void onTemp(int t, boolean commit) { acTemp = t; if (commit) sendState(dial); }
+                    @Override public void onKnob() { sendState(dial); }
+                });
 
-                final boolean[] modeInit = {true};
-                final boolean[] fanInit = {true};
-                modeSpinner.setOnItemSelectedListener(new SimpleSel(pos -> {
-                    acMode = modes.get(pos);
-                    if (modeInit[0]) { modeInit[0] = false; return; } // ignore initial selection
-                    sendState();
-                }));
-                fanSpinner.setOnItemSelectedListener(new SimpleSel(pos -> {
-                    acFan = fans.get(pos);
-                    if (fanInit[0]) { fanInit[0] = false; return; }
-                    sendState();
-                }));
+                // only the keys that have codes: fan speed, cool, heat
+                List<View> row = new ArrayList<>();
+                if (fans.size() > 1) {
+                    FrameLayout k = Ui.key(this, 48, R.drawable.ic_fanbars, null, Ui.color(this, R.color.icon));
+                    k.setOnClickListener(v -> {
+                        acFan = fans.get((fans.indexOf(acFan) + 1) % fans.size());
+                        toast(fanHe(acFan));
+                        sendState(v);
+                    });
+                    row.add(k);
+                }
+                if (modes.contains("cool")) {
+                    FrameLayout k = Ui.key(this, 48, R.drawable.ic_snow, null, Ui.color(this, R.color.icon));
+                    k.setOnClickListener(v -> { acMode = "cool"; toast(modeHe(acMode)); sendState(v); });
+                    row.add(k);
+                }
+                if (modes.contains("heat")) {
+                    FrameLayout k = Ui.key(this, 48, R.drawable.ic_sun, null, Ui.color(this, R.color.icon));
+                    k.setOnClickListener(v -> { acMode = "heat"; toast(modeHe(acMode)); sendState(v); });
+                    row.add(k);
+                }
+                for (int i = 0; i < row.size(); i++) {
+                    if (i > 0) keys.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+                    keys.addView(row.get(i));
+                }
+                if (row.size() == 1) keys.setGravity(Gravity.CENTER);
             });
         });
-
-        tempMinus.setOnClickListener(x -> { if (acSpec != null && acTemp > acSpec.minT) { acTemp--; tempText.setText(acTemp + "°"); sendState(); } });
-        tempPlus.setOnClickListener(x -> { if (acSpec != null && acTemp < acSpec.maxT) { acTemp++; tempText.setText(acTemp + "°"); sendState(); } });
-        powerBtn.setOnClickListener(x -> sendOff());
-        sendBtn.setOnClickListener(x -> sendState());
     }
 
-    private void sendState() {
+    private void sendState(View v) {
         if (acSpec == null) return;
+        acOn = true;
         final String mode = acMode, fan = acFan;
         final int temp = acTemp;
         App.get().io().execute(() -> {
             Code c = App.get().smartIr().acCode(acSpec, mode, fan, temp);
-            sendCodeResult(c);
+            runOnUiThread(() -> {
+                if (c == null) toast("אין קוד למצב הזה");
+                else send(v, c);
+            });
         });
     }
 
-    private void sendOff() {
-        if (acSpec == null) return;
-        App.get().io().execute(() -> sendCodeResult(App.get().smartIr().acOff(acSpec)));
-    }
+    // ---------------- TV-style layout (TV and every other device) ----------------
 
-    // ---------------- buttons ----------------
-
-    private void buildButtons() {
-        RecyclerView rv = new RecyclerView(this);
-        int cols = "led".equals(remote.category) ? 4 : 3;
-        rv.setLayoutManager(new GridLayoutManager(this, cols));
-        SimpleAdapter adapter = new SimpleAdapter(R.layout.item_key);
-        rv.setAdapter(adapter);
-        rv.setClipToPadding(false);
-        int pad = (int) (6 * getResources().getDisplayMetrics().density);
-        rv.setPadding(pad, pad, pad, pad);
-        content.addView(rv, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-
-        boolean led = "led".equals(remote.category);
-        List<SimpleAdapter.Row> rows = new ArrayList<>();
-        for (IrKey k : remote.keys) {
-            final Code c = k.code;
-            String label = k.label == null ? "" : k.label;
-            SimpleAdapter.Row row = new SimpleAdapter.Row(label, null,
-                    () -> App.get().io().execute(() -> sendCodeResult(c)));
-            if (led) { int col = colorFor(label); if (col != 0) row.bg = col; }
-            rows.add(row);
+    private void buildTv(List<IrKey> keys) {
+        LinearLayout col = new LinearLayout(this);
+        area(col, 16);
+        if (keys == null || keys.isEmpty()) {
+            col.addView(Ui.text(this, "אין כפתורים בשלט הזה", 14, Ui.color(this, R.color.sub), false), topMargin(40));
+            return;
         }
-        adapter.submit(rows);
-        if (remote.keys.isEmpty()) {
-            Toast.makeText(this, "אין כפתורים", Toast.LENGTH_SHORT).show();
+        Map<String, IrKey> one = new LinkedHashMap<>();
+        List<IrKey> nums = new ArrayList<>(), colors = new ArrayList<>(), rest = new ArrayList<>();
+        for (IrKey k : keys) {
+            String role = KeyRoles.of(k, false);
+            if (KeyRoles.NUM.equals(role)) nums.add(k);
+            else if (KeyRoles.COLOR.equals(role)) colors.add(k);
+            else if (KeyRoles.GENERIC.equals(role) || one.containsKey(role)) rest.add(k);
+            else one.put(role, k);
+        }
+        Set<String> used = new HashSet<>();
+        int icon = Ui.color(this, R.color.icon);
+
+        // 1. power / home / mute
+        LinearLayout r1 = new LinearLayout(this);
+        r1.setOrientation(LinearLayout.HORIZONTAL);
+        String powerRole = one.containsKey(KeyRoles.POWER) ? KeyRoles.POWER : (one.containsKey(KeyRoles.ON) ? KeyRoles.ON : null);
+        for (String role : new String[]{powerRole, KeyRoles.HOME, KeyRoles.MUTE}) {
+            if (role == null || !one.containsKey(role)) continue;
+            IrKey k = one.get(role);
+            boolean pw = KeyRoles.POWER.equals(role) || KeyRoles.ON.equals(role);
+            FrameLayout v = Ui.key(this, 56, KeyRoles.iconFor(role), null, pw ? Ui.color(this, R.color.power) : icon);
+            v.setOnClickListener(x -> send(x, k.code));
+            Ui.addGap(r1, v, 26);
+            used.add(role);
+        }
+        if (r1.getChildCount() > 0) col.addView(r1);
+
+        // 2. D-pad
+        boolean anyArrow = false;
+        for (String r : new String[]{KeyRoles.UP, KeyRoles.DOWN, KeyRoles.LEFT, KeyRoles.RIGHT, KeyRoles.OK})
+            if (one.containsKey(r)) anyArrow = true;
+        if (anyArrow) {
+            FrameLayout pad = new FrameLayout(this);
+            pad.setBackgroundResource(R.drawable.bg_dpad);
+            int ps = Ui.dp(this, 188);
+            col.addView(pad, sized(ps, ps, col.getChildCount() > 0 ? 13 : 0));
+            addArrow(pad, one.get(KeyRoles.UP), R.drawable.ic_up, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            addArrow(pad, one.get(KeyRoles.DOWN), R.drawable.ic_dn, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            addArrow(pad, one.get(KeyRoles.LEFT), R.drawable.ic_lf, Gravity.LEFT | Gravity.CENTER_VERTICAL);
+            addArrow(pad, one.get(KeyRoles.RIGHT), R.drawable.ic_rt, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+            IrKey ok = one.get(KeyRoles.OK);
+            if (ok != null) {
+                TextView o = Ui.text(this, "OK", 15, 0xFFFFFFFF, true);
+                o.setGravity(Gravity.CENTER);
+                o.setBackgroundResource(R.drawable.bg_ok);
+                o.setElevation(Ui.dp(this, 4));
+                o.setOnClickListener(x -> send(x, ok.code));
+                pad.addView(o, new FrameLayout.LayoutParams(Ui.dp(this, 72), Ui.dp(this, 72), Gravity.CENTER));
+            }
+            used.add(KeyRoles.UP); used.add(KeyRoles.DOWN); used.add(KeyRoles.LEFT); used.add(KeyRoles.RIGHT); used.add(KeyRoles.OK);
+        }
+
+        // 3. rockers
+        List<View> rockers = new ArrayList<>();
+        addRocker(rockers, one, used, KeyRoles.VOL_DN, KeyRoles.VOL_UP, "עוצמה");
+        addRocker(rockers, one, used, KeyRoles.CH_DN, KeyRoles.CH_UP, "ערוץ");
+        addRocker(rockers, one, used, KeyRoles.TEMP_DN, KeyRoles.TEMP_UP, "טמפ'");
+        addRocker(rockers, one, used, KeyRoles.BRIGHT_DN, KeyRoles.BRIGHT_UP, "בהירות");
+        for (int i = 0; i < rockers.size(); i += 2) {
+            LinearLayout rr = new LinearLayout(this);
+            rr.setOrientation(LinearLayout.HORIZONTAL);
+            for (int j = i; j < Math.min(i + 2, rockers.size()); j++) {
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                if (j > i) lp.setMarginStart(Ui.dp(this, 14));
+                rr.addView(rockers.get(j), lp);
+            }
+            if (rockers.size() - i == 1) {
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, 1, 1f);
+                lp.setMarginStart(Ui.dp(this, 14));
+                rr.addView(new View(this), lp);
+            }
+            col.addView(rr, fullWidth(col.getChildCount() > 0 ? 13 : 0));
+        }
+
+        // 4. number pad / menu / source / back
+        LinearLayout r4 = new LinearLayout(this);
+        r4.setOrientation(LinearLayout.HORIZONTAL);
+        if (!nums.isEmpty()) {
+            FrameLayout v = Ui.key(this, 48, R.drawable.ic_num, null, icon);
+            v.setOnClickListener(x -> showNumPad(nums));
+            Ui.addGap(r4, v, 26);
+        }
+        for (String role : new String[]{KeyRoles.MENU, KeyRoles.SOURCE, KeyRoles.BACK}) {
+            IrKey k = one.get(role);
+            if (k == null) continue;
+            FrameLayout v = Ui.key(this, 48, 0, KeyRoles.roleName(role), 0);
+            v.setOnClickListener(x -> send(x, k.code));
+            Ui.addGap(r4, v, 26);
+            used.add(role);
+        }
+        if (r4.getChildCount() > 0) col.addView(r4, topMargin(col.getChildCount() > 0 ? 13 : 0));
+
+        // 5. coloured keys (e.g. teletext red/green/yellow/blue)
+        if (!colors.isEmpty()) {
+            LinearLayout r5 = new LinearLayout(this);
+            r5.setOrientation(LinearLayout.HORIZONTAL);
+            for (IrKey k : colors) {
+                View s = swatch(k, 40, true);
+                Ui.addGap(r5, s, 14);
+            }
+            col.addView(r5, topMargin(13));
+        }
+
+        // 6. everything else as round keys, 4 per row
+        for (Map.Entry<String, IrKey> e : one.entrySet()) if (!used.contains(e.getKey())) rest.add(e.getValue());
+        addKeyGrid(col, rest, 4, false);
+    }
+
+    private LinearLayout.LayoutParams sized(int w, int h, int topDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h);
+        lp.topMargin = Ui.dp(this, topDp);
+        return lp;
+    }
+
+    private void addArrow(FrameLayout pad, IrKey k, int icon, int gravity) {
+        if (k == null) return;
+        ImageView a = new ImageView(this);
+        a.setImageResource(icon);
+        Ui.tint(a, Ui.color(this, R.color.icon));
+        int p = Ui.dp(this, 14);
+        a.setPadding(p, p, p, p);
+        a.setBackgroundResource(R.drawable.bg_icon_btn);
+        a.setOnClickListener(x -> send(x, k.code));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48), gravity);
+        int m = Ui.dp(this, 2);
+        lp.setMargins(m, m, m, m);
+        pad.addView(a, lp);
+    }
+
+    private void addRocker(List<View> out, Map<String, IrKey> one, Set<String> used, String dnRole, String upRole, String label) {
+        IrKey dn = one.get(dnRole), up = one.get(upRole);
+        if (dn == null && up == null) return;
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setBackgroundResource(R.drawable.bg_rocker);
+        r.setElevation(Ui.dp(this, 2));
+        r.addView(rockerHalf("−", dn), new LinearLayout.LayoutParams(0, Ui.dp(this, 44), 1f));
+        TextView mid = Ui.text(this, label, 11, Ui.color(this, R.color.sub), false);
+        r.addView(mid);
+        r.addView(rockerHalf("+", up), new LinearLayout.LayoutParams(0, Ui.dp(this, 44), 1f));
+        used.add(dnRole);
+        used.add(upRole);
+        out.add(r);
+    }
+
+    private TextView rockerHalf(String sign, IrKey k) {
+        TextView t = Ui.text(this, sign, 20, Ui.color(this, R.color.icon), false);
+        t.setGravity(Gravity.CENTER);
+        t.setBackgroundResource(R.drawable.bg_rocker_half);
+        if (k == null) t.setAlpha(0.3f);
+        else t.setOnClickListener(x -> send(x, k.code));
+        return t;
+    }
+
+    private View swatch(IrKey k, int sizeDp, boolean circle) {
+        int col = k.color != 0 ? k.color : KeyRoles.colorFor(k.label);
+        if (col == 0) col = 0xFFCBD5E1;
+        View s = new View(this);
+        GradientDrawable g = new GradientDrawable();
+        if (circle) g.setShape(GradientDrawable.OVAL);
+        else g.setCornerRadius(Ui.dp(this, 9));
+        g.setColor(col);
+        g.setStroke(Ui.dp(this, 1), 0x0F000000);
+        s.setBackground(g);
+        s.setElevation(Ui.dp(this, 1));
+        s.setOnClickListener(x -> send(x, k.code));
+        s.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, sizeDp), Ui.dp(this, sizeDp)));
+        return s;
+    }
+
+    /** Round keys in rows; icon when the role has one, else the Hebrew label. */
+    private void addKeyGrid(LinearLayout col, List<IrKey> keys, int perRow, boolean led) {
+        int icon = Ui.color(this, R.color.icon);
+        for (int i = 0; i < keys.size(); i += perRow) {
+            LinearLayout r = new LinearLayout(this);
+            r.setOrientation(LinearLayout.HORIZONTAL);
+            for (int j = 0; j < perRow; j++) {
+                FrameLayout cell = new FrameLayout(this);
+                if (i + j < keys.size()) {
+                    IrKey k = keys.get(i + j);
+                    String role = KeyRoles.of(k, led);
+                    int ic = KeyRoles.GENERIC.equals(role) ? 0 : KeyRoles.iconFor(role);
+                    String label = KeyRoles.GENERIC.equals(role) ? KeyRoles.hebrew(k.label) : KeyRoles.roleName(role);
+                    if (KeyRoles.NUM.equals(role)) { ic = 0; label = String.valueOf(Math.max(0, KeyRoles.digit(k))); }
+                    FrameLayout v = Ui.key(this, 56, ic, label,
+                            KeyRoles.POWER.equals(role) ? Ui.color(this, R.color.power) : icon);
+                    v.setOnClickListener(x -> send(x, k.code));
+                    cell.addView(v, new FrameLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56), Gravity.CENTER));
+                }
+                r.addView(cell, new LinearLayout.LayoutParams(0, Ui.dp(this, 64), 1f));
+            }
+            col.addView(r, fullWidth(i == 0 ? 14 : 4));
         }
     }
 
-    /** Map a colour-named LED button to a swatch colour, else 0. */
-    private static int colorFor(String name) {
-        String n = name.toLowerCase();
-        if (n.contains("red") || n.contains("אדום")) return 0xFFEF4444;
-        if (n.contains("green") || n.contains("ירוק")) return 0xFF22C55E;
-        if (n.contains("blue") || n.contains("כחול")) return 0xFF3B82F6;
-        if (n.contains("white") || n.contains("לבן")) return 0xFFF1F5F9;
-        if (n.contains("orange") || n.contains("כתום")) return 0xFFF97316;
-        if (n.contains("yellow") || n.contains("צהוב")) return 0xFFEAB308;
-        if (n.contains("purple") || n.contains("violet") || n.contains("סגול")) return 0xFF8B5CF6;
-        if (n.contains("pink") || n.contains("ורוד")) return 0xFFEC4899;
-        if (n.contains("cyan") || n.contains("teal") || n.contains("תכלת")) return 0xFF14B8A6;
-        return 0;
-    }
-
-    // ---------------- send ----------------
-
-    private void sendCodeResult(Code c) {
-        com.offlineremote.app.usb.RawDongle raw = App.get().raw();
-        if (!raw.isOpen()) raw.open();
-        boolean ok = false;
-        if (c != null && raw.isOpen()) {
-            byte[] nativeFrame = (c.kind == Code.Kind.NATIVE) ? c.nativeBytes : null;
-            ok = raw.transmit(c.freq, nativeFrame, c.micros);
+    private void showNumPad(List<IrKey> nums) {
+        IrKey[] byDigit = new IrKey[10];
+        for (IrKey k : nums) { int d = KeyRoles.digit(k); if (d >= 0 && d <= 9 && byDigit[d] == null) byDigit[d] = k; }
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+        int p = Ui.dp(this, 16);
+        box.setPadding(p, p, p, p);
+        int[][] grid = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}, {-1, 0, -1}};
+        for (int[] row : grid) {
+            LinearLayout r = new LinearLayout(this);
+            r.setOrientation(LinearLayout.HORIZONTAL);
+            for (int d : row) {
+                FrameLayout cell = new FrameLayout(this);
+                if (d >= 0 && byDigit[d] != null) {
+                    IrKey k = byDigit[d];
+                    FrameLayout v = Ui.key(this, 56, 0, String.valueOf(d), 0);
+                    TextView t = (TextView) v.getChildAt(0);
+                    t.setTextSize(18);
+                    t.setTextColor(Ui.color(this, R.color.ink));
+                    v.setOnClickListener(x -> send(x, k.code));
+                    cell.addView(v, new FrameLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56), Gravity.CENTER));
+                }
+                r.addView(cell, new LinearLayout.LayoutParams(0, Ui.dp(this, 66), 1f));
+            }
+            box.addView(r);
         }
-        final boolean result = ok;
-        final boolean connected = raw.isOpen();
-        runOnUiThread(() -> {
-            String msg = !connected ? getString(R.string.dongle_missing)
-                    : (result ? getString(R.string.sent) : getString(R.string.send_failed));
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-        });
+        box.setBackgroundColor(Ui.color(this, R.color.bg));
+        AlertDialog d = new AlertDialog.Builder(this).setView(box).create();
+        d.show();
+        rotateDialog(d);
     }
 
-    // ---------------- helpers ----------------
+    // ---------------- LED ----------------
 
-    private ArrayAdapter<String> spinner(List<String> items) {
-        ArrayAdapter<String> a = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, items);
-        a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        return a;
+    private void buildLed(List<IrKey> keys) {
+        LinearLayout col = new LinearLayout(this);
+        area(col, 16);
+        if (keys == null || keys.isEmpty()) {
+            col.addView(Ui.text(this, "אין כפתורים בשלט הזה", 14, Ui.color(this, R.color.sub), false), topMargin(40));
+            return;
+        }
+        IrKey on = null, off = null, power = null, bUp = null, bDn = null;
+        List<IrKey> colors = new ArrayList<>(), rest = new ArrayList<>();
+        for (IrKey k : keys) {
+            String role = KeyRoles.of(k, true);
+            if (KeyRoles.ON.equals(role) && on == null) on = k;
+            else if (KeyRoles.OFF.equals(role) && off == null) off = k;
+            else if (KeyRoles.POWER.equals(role) && power == null) power = k;
+            else if (KeyRoles.COLOR.equals(role)) colors.add(k);
+            else if (KeyRoles.BRIGHT_UP.equals(role) && bUp == null) bUp = k;
+            else if (KeyRoles.BRIGHT_DN.equals(role) && bDn == null) bDn = k;
+            else rest.add(k);
+        }
+        if (on == null && power != null) { on = power; power = null; }
+        if (power != null) rest.add(0, power);
+
+        // on / off
+        LinearLayout oo = new LinearLayout(this);
+        oo.setOrientation(LinearLayout.HORIZONTAL);
+        if (on != null) oo.addView(wideKey(R.drawable.ic_power, off == null ? "הפעלה/כיבוי" : "הדלק", Ui.color(this, R.color.ink), on),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (off != null) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (oo.getChildCount() > 0) lp.setMarginStart(Ui.dp(this, 10));
+            oo.addView(wideKey(R.drawable.ic_power, "כבה", Ui.color(this, R.color.sub), off), lp);
+        }
+        if (oo.getChildCount() > 0) col.addView(oo, fullWidth(0));
+
+        // colour wheel + swatches
+        List<IrKey> hued = new ArrayList<>();
+        for (IrKey k : colors) {
+            float[] hsv = new float[3];
+            android.graphics.Color.colorToHSV(k.color != 0 ? k.color : KeyRoles.colorFor(k.label), hsv);
+            if (hsv[1] >= 0.2f) hued.add(k);
+        }
+        if (hued.size() >= 2) {
+            ColorWheelView w = new ColorWheelView(this);
+            w.setListener(argb -> {
+                IrKey best = null;
+                float bd = Float.MAX_VALUE;
+                for (IrKey k : hued) {
+                    int kc = k.color != 0 ? k.color : KeyRoles.colorFor(k.label);
+                    float d = ColorWheelView.hueDistance(argb, kc);
+                    if (d < bd) { bd = d; best = k; }
+                }
+                if (best != null) send(w, best.code);
+            });
+            col.addView(w, topMargin(oo.getChildCount() > 0 ? 7 : 0));
+        }
+        if (!colors.isEmpty()) {
+            int avail = getResources().getDisplayMetrics().widthPixels - Ui.dp(this, 32);
+            int gap = Ui.dp(this, 8);
+            int cell = (avail - gap * 5) / 6;
+            for (int i = 0; i < colors.size(); i += 6) {
+                LinearLayout r = new LinearLayout(this);
+                r.setOrientation(LinearLayout.HORIZONTAL);
+                for (int j = i; j < Math.min(i + 6, colors.size()); j++) {
+                    View s = swatch(colors.get(j), 10, false);
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cell, cell);
+                    if (j > i) lp.setMarginStart(gap);
+                    r.addView(s, lp);
+                }
+                col.addView(r, fullWidth(i == 0 ? 12 : 8));
+            }
+        }
+
+        // brightness + effects, 3 per row
+        List<View> wide = new ArrayList<>();
+        if (bUp != null) wide.add(wideKey(R.drawable.ic_sun, "בהירות +", Ui.color(this, R.color.ink), bUp));
+        if (bDn != null) wide.add(wideKey(R.drawable.ic_moon, "בהירות −", Ui.color(this, R.color.ink), bDn));
+        for (IrKey k : rest) {
+            String role = KeyRoles.of(k, true);
+            String label = KeyRoles.GENERIC.equals(role) ? KeyRoles.hebrew(k.label) : KeyRoles.roleName(role);
+            if (KeyRoles.NUM.equals(role)) label = k.label;
+            wide.add(wideKey(0, label, 0, k));
+        }
+        for (int i = 0; i < wide.size(); i += 3) {
+            LinearLayout r = new LinearLayout(this);
+            r.setOrientation(LinearLayout.HORIZONTAL);
+            for (int j = i; j < i + 3; j++) {
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                if (j > i) lp.setMarginStart(Ui.dp(this, 10));
+                if (j < wide.size()) r.addView(wide.get(j), lp);
+                else r.addView(new View(this), lp);
+            }
+            col.addView(r, fullWidth(i == 0 ? 12 : 10));
+        }
     }
 
-    private static List<String> listOf(String... s) {
-        List<String> l = new ArrayList<>();
-        for (String x : s) l.add(x);
-        return l;
-    }
-
-    /** Minimal Spinner selection listener. */
-    private static final class SimpleSel implements android.widget.AdapterView.OnItemSelectedListener {
-        interface Sel { void at(int pos); }
-        private final Sel sel;
-        SimpleSel(Sel sel) { this.sel = sel; }
-        @Override public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) { sel.at(pos); }
-        @Override public void onNothingSelected(android.widget.AdapterView<?> p) {}
+    /** White rounded key with an optional icon and a label (LED on/off, brightness, effects). */
+    private View wideKey(int iconRes, String label, int iconColor, IrKey k) {
+        LinearLayout v = new LinearLayout(this);
+        v.setOrientation(LinearLayout.HORIZONTAL);
+        v.setGravity(Gravity.CENTER);
+        v.setBackgroundResource(R.drawable.bg_btn_white);
+        v.setElevation(Ui.dp(this, 2));
+        int p = Ui.dp(this, 11);
+        v.setPadding(p, Ui.dp(this, 12), p, Ui.dp(this, 12));
+        if (iconRes != 0) {
+            ImageView iv = Ui.icon(this, iconRes, 17, iconColor);
+            v.addView(iv);
+        }
+        TextView t = Ui.text(this, label, iconRes != 0 ? 13 : 12, Ui.color(this, R.color.ink), iconRes != 0);
+        t.setMaxLines(1);
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        if (iconRes != 0) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMarginStart(Ui.dp(this, 7));
+            v.addView(t, lp);
+        } else v.addView(t);
+        v.setOnClickListener(x -> send(x, k.code));
+        return v;
     }
 }

@@ -1,18 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/bg">
 
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/toolbar"
+    <include layout="@layout/view_topbar" />
+
+    <LinearLayout
+        android:id="@+id/banner"
         android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize"
-        android:background="@color/surface"
-        app:navigationIcon="@android:drawable/ic_menu_revert"
-        app:titleTextColor="@color/textPrimary" />
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="12dp"
+        android:background="@color/blue"
+        android:visibility="gone">
+        <ImageView
+            android:id="@+id/bannerClose"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:src="@drawable/ic_x"
+            android:tint="#FFFFFF" />
+        <TextView
+            android:id="@+id/bannerText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <FrameLayout
         android:id="@+id/content"
@@ -21,35 +41,56 @@
         android:layout_weight="1" />
 
     <LinearLayout
-        android:id="@+id/previewBar"
+        android:id="@+id/matchbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:visibility="gone"
-        android:padding="10dp"
-        android:background="@color/surface">
-        <TextView
-            android:id="@+id/previewHint"
-            android:layout_width="match_parent"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <LinearLayout
+            android:id="@+id/btnPrev"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal"
             android:gravity="center"
-            android:textSize="12sp"
-            android:textColor="@color/textSecondary"
-            android:text="נסה את הכפתורים · החלק ימינה/שמאלה להחלפת שלט" />
-        <Button
-            android:id="@+id/btnSavePreview"
-            android:layout_width="match_parent"
+            android:paddingVertical="14dp"
+            android:background="@color/prev">
+            <ImageView android:layout_width="18dp" android:layout_height="18dp"
+                android:src="@drawable/ic_chr" android:tint="#FFFFFF" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="6dp" android:text="הקודם"
+                android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold" />
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/btnWorked"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="שמור שלט למכשירים שלי" />
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:paddingVertical="14dp"
+            android:background="@color/blue2">
+            <ImageView android:layout_width="18dp" android:layout_height="18dp"
+                android:src="@drawable/ic_check" android:tint="#FFFFFF" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="6dp" android:text="עבד!"
+                android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold" />
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/btnNext"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:paddingVertical="14dp"
+            android:background="@color/blue">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="הבא"
+                android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold" />
+            <ImageView android:layout_width="18dp" android:layout_height="18dp"
+                android:layout_marginStart="6dp"
+                android:src="@drawable/ic_chl" android:tint="#FFFFFF" />
+        </LinearLayout>
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/note"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="10dp"
-        android:textSize="12sp"
-        android:textColor="@color/textSecondary"
-        android:background="@color/surface" />
 </LinearLayout>

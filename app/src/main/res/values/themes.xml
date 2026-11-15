@@ -1,17 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.OfflineRemote" parent="Theme.MaterialComponents.NoActionBar">
-        <item name="colorPrimary">@color/primary</item>
-        <item name="colorPrimaryVariant">@color/primaryDark</item>
-        <item name="colorOnPrimary">@color/onPrimary</item>
-        <item name="colorSecondary">@color/primary</item>
-        <item name="colorOnSecondary">@color/onPrimary</item>
+    <style name="Theme.OfflineRemote" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/blue</item>
+        <item name="colorPrimaryVariant">@color/blue2</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">@color/blue</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
         <item name="android:colorBackground">@color/bg</item>
-        <item name="colorSurface">@color/surface</item>
-        <item name="colorOnSurface">@color/textPrimary</item>
-        <item name="android:statusBarColor">@color/bg</item>
+        <item name="colorSurface">@color/card</item>
+        <item name="colorOnSurface">@color/ink</item>
         <item name="android:windowBackground">@color/bg</item>
-        <item name="android:textColorPrimary">@color/textPrimary</item>
-        <item name="android:textColorSecondary">@color/textSecondary</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:textColorSecondary">@color/sub</item>
+        <item name="android:statusBarColor">@color/ink</item>
+        <item name="fontFamily">@font/assistant</item>
+        <item name="android:fontFamily">@font/assistant</item>
     </style>
 </resources>

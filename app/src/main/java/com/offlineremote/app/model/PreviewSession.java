@@ -3,9 +3,8 @@ package com.offlineremote.app.model;
 import java.util.List;
 
 /**
- * A set of candidate remotes the user is trying out before saving. Each candidate is
- * built lazily (TV/LED load their key sets on demand). Swiping in the remote screen
- * moves between candidates of the same device; only "Save" commits one to the store.
+ * Candidate code sets the user steps through with הקודם / הבא before tapping "עבד!".
+ * Each candidate is built lazily (library remotes load their keys on demand).
  */
 public final class PreviewSession {
 
@@ -13,6 +12,14 @@ public final class PreviewSession {
 
     public final List<Builder> builders;
     public int index;
+    /** Brand as shown in the title, e.g. "AUX" or "אלקטרה". */
+    public String brand = "";
+    /** Category name, e.g. "מזגן". */
+    public String categoryHe = "";
+    /** Banner target, e.g. "המזגן". */
+    public String target = "המכשיר";
+    /** Category slug ("ac", "tv", "led", ...). */
+    public String category = "";
 
     public PreviewSession(List<Builder> builders, int index) {
         this.builders = builders;

@@ -21,6 +21,7 @@ public final class SavedRemote {
     public String category;   // "ac", "tv", "stb", "fan", "other"
     public String source;     // "local", "smartir", "learned", "cloud"
     public String acFile;     // SmartIR asset filename (AC only), else null
+    public String brand;      // manufacturer shown under the name on the home card
     public List<IrKey> keys = new ArrayList<>();
     public long createdAt;
 
@@ -38,6 +39,7 @@ public final class SavedRemote {
         o.put("category", category);
         o.put("source", source);
         if (acFile != null) o.put("acFile", acFile);
+        if (brand != null) o.put("brand", brand);
         o.put("createdAt", createdAt);
         JSONArray a = new JSONArray();
         for (IrKey k : keys) a.put(k.toJson());
@@ -52,6 +54,7 @@ public final class SavedRemote {
         r.category = o.optString("category", "other");
         r.source = o.optString("source", "learned");
         r.acFile = o.has("acFile") ? o.optString("acFile") : null;
+        r.brand = o.has("brand") ? o.optString("brand") : null;
         r.createdAt = o.optLong("createdAt", System.currentTimeMillis());
         r.keys = new ArrayList<>();
         JSONArray a = o.optJSONArray("keys");
