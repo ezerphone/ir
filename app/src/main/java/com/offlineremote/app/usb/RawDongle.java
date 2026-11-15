@@ -169,7 +169,22 @@ public final class RawDongle {
     // ---- high-level ops (strict half-duplex) ----
 
     /** Learn one IR signal. Returns inner learned payload ("ST" b 'D' <dur> "EN"), or null. */
+    /**
+     * Reliable learn used by the UI. The dongle's receive state goes stale after a
+     * capture or a send, so a second learn on the same connection captures nothing
+     * ("works once then stops"). Starting from a fresh USB open — and retrying once
+     * with a reopen if nothing arrives — fixes it. This mirrors the diagnostics path
+     * the user confirmed works repeatedly.
+     */
+    public byte[] learnReliable(int timeoutMs) {
+        reopen();
+        byte[] p = learn(timeoutMs);
+        if (p == null) { reopen(); p = learn(timeoutMs); }
+        return p;
+    }
+
     public byte[] learn(int timeoutMs) {
+        if (conn == null) return null;
         writeMode('L'); readFrame(500);   // ack
         writeMode('R'); readFrame(500);   // ack
         long deadline = System.currentTimeMillis() + timeoutMs;

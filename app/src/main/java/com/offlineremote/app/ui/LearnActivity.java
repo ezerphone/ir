@@ -78,7 +78,7 @@ public class LearnActivity extends AppCompatActivity {
                 runOnUiThread(() -> Toast.makeText(this, R.string.dongle_missing, Toast.LENGTH_SHORT).show());
                 return;
             }
-            byte[] frame = raw.learn(12000);
+            byte[] frame = raw.learnReliable(12000);
             runOnUiThread(() -> {
                 if (frame == null) {
                     Toast.makeText(this, "לא נקלט אות", Toast.LENGTH_SHORT).show();
