@@ -131,10 +131,12 @@ public class DiagnosticsActivity extends AppCompatActivity {
         }
     }
 
+    /** Always close and reopen for a clean dongle state each operation (v8 behaviour). */
     private boolean ensureRawOpen() {
         RawDongle raw = App.get().raw();
-        if (raw.isOpen()) return true;
+        try { raw.close(); } catch (Throwable ignore) {}
         try { App.get().dongle().disconnect(); } catch (Throwable ignore) {}
+        try { Thread.sleep(120); } catch (InterruptedException ignore) {}
         return raw.open();
     }
 
