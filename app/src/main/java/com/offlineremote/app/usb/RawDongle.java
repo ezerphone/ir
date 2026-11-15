@@ -7,26 +7,29 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
-import android.hardware.usb.UsbRequest;
-import android.os.SystemClock;
 
-import java.nio.ByteBuffer;
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Clean-room driver for the Tiqiaa dongle — talks to it DIRECTLY with the reverse-engineered
- * ASCII protocol, using NONE of Tiqiaa's native libraries (so no signature gate).
+ * Clean-room driver for the Tiqiaa USB-C IR dongle — reverse-engineered ASCII protocol,
+ * no Tiqiaa native libraries (no signature gate).
  *
- * Protocol (recovered by disassembling libtiqiaadev.so, for interoperability):
- *   Every packet: "ST" + <byte> + <cmd/payload...> + "EN", sent via bulkTransfer to OUT.
- *   Mode command: "ST" + <seq> + <modeChar> + "EN"
- *     modeChar: 0->'L' 1->'S'(send) 2->'R'(receive/learn) 3->'H' 4->'O' 6->'C' 7->'V'
- *   Send IR:      "ST" + <repeat> + 'D' + <freqIndex> + <duration bytes...> + "EN"
- *   Responses arrive on IN as 64-byte packets: [0]==1, len=[1]-3, payload at [5].
+ * Architecture mirrors ZaZa's own: ONE persistent connection plus a background reader
+ * thread that continuously drains the IN endpoint, reassembles multi-chunk messages and
+ * queues the completed inner payloads. This keeps the dongle's buffer clear so it stays
+ * responsive across many learn/send cycles (reading only on demand made it hang after one).
  *
- * This class is a raw console/recorder: open, send a mode command, and capture whatever
- * the dongle returns — used to validate the protocol and gather learn data.
+ * Wire protocol:
+ *   USB packet: [0x02 out / 0x01 in][payloadLen+3][seq][totalChunks][chunkIdx] + payload
+ *   Inner payloads: "ST" + <byte> + <cmd> ... + "EN"
+ *     mode:  "ST" <seq> <modeChar 'L'/'S'/'R'/...> "EN"
+ *     send:  "ST" <seq> 'D' <freqIdx> <durationBytes> "EN"
+ *   Duration byte: low7 = microseconds/16, bit7 = mark(1)/space(0); long runs as 0x7f/0xff.
  */
 public final class RawDongle {
 
@@ -50,8 +53,15 @@ public final class RawDongle {
     private UsbInterface iface;
     private UsbDeviceConnection conn;
     private UsbEndpoint epIn, epOut;
-    private int seq = 0;       // inner payload seq (0..255)
-    private int usbSeq = 0;    // outer USB-frame seq (1..15)
+
+    private volatile boolean running;
+    private Thread reader;
+    private final BlockingQueue<byte[]> frames = new LinkedBlockingQueue<>();
+
+    private int innerSeq = 0;
+    private int usbSeq = 0;
+
+    public byte[] lastSendFrame;
 
     public RawDongle(Context c) {
         this.ctx = c.getApplicationContext();
@@ -60,9 +70,10 @@ public final class RawDongle {
 
     public boolean isOpen() { return conn != null; }
 
-    public boolean open() {
-        UsbDevice dev = null;
+    public synchronized boolean open() {
+        if (conn != null) return true;
         if (um == null) return false;
+        UsbDevice dev = null;
         java.util.HashMap<String, UsbDevice> list = um.getDeviceList();
         if (list != null) for (UsbDevice d : list.values()) if (DongleManager.matches(d)) { dev = d; break; }
         if (dev == null || !um.hasPermission(dev) || dev.getInterfaceCount() < 1) return false;
@@ -75,10 +86,13 @@ public final class RawDongle {
         if (c == null) return false;
         if (!c.claimInterface(in0, true)) { c.close(); return false; }
         this.conn = c; this.iface = in0;
+        startReader();
         return true;
     }
 
-    public void close() {
+    public synchronized void close() {
+        running = false;
+        if (reader != null) { try { reader.join(400); } catch (InterruptedException ignore) {} reader = null; }
         if (conn != null) {
             try { if (iface != null) conn.releaseInterface(iface); } catch (Throwable ignore) {}
             try { conn.close(); } catch (Throwable ignore) {}
@@ -86,285 +100,133 @@ public final class RawDongle {
         conn = null; iface = null;
     }
 
-    private int nextSeq() { seq = (seq + 1) & 0xFF; return seq; }
+    private void startReader() {
+        running = true;
+        reader = new Thread(() -> {
+            ByteArrayOutputStream acc = new ByteArrayOutputStream();
+            int curSeq = -1, needTotal = -1;
+            byte[] buf = new byte[64];
+            while (running) {
+                UsbDeviceConnection c = conn;
+                UsbEndpoint in = epIn;
+                if (c == null || in == null) break;
+                int n;
+                try { n = c.bulkTransfer(in, buf, buf.length, 250); } catch (Throwable t) { continue; }
+                if (n < 5) continue;
+                int b0 = buf[0] & 0xff;
+                if (b0 != 0x01 && b0 != 0x02) continue;
+                int len = (buf[1] & 0xff) - 3;
+                int useq = buf[2] & 0xff, total = buf[3] & 0xff, idx = buf[4] & 0xff;
+                if (len < 0 || len > 56 || 5 + len > n) continue;
+                if (idx == 1) { acc.reset(); curSeq = useq; needTotal = total; }
+                if (useq != curSeq) continue;
+                acc.write(buf, 5, len);
+                if (idx >= needTotal) {
+                    frames.offer(acc.toByteArray());
+                    acc.reset(); curSeq = -1;
+                }
+            }
+        }, "dongle-reader");
+        reader.setDaemon(true);
+        reader.start();
+    }
+
+    // ---- framing ----
+    private int nextSeq() { innerSeq = (innerSeq + 1) & 0xFF; return innerSeq; }
     private int nextUsbSeq() { usbSeq = (usbSeq >= 15) ? 1 : usbSeq + 1; return usbSeq; }
 
-    /**
-     * Wrap a payload in the dongle's USB framing (single chunk, payload must be <=56 bytes):
-     *   [0x02][payloadLen+3][usbSeq][totalChunks=1][chunkIdx=1] + payload
-     */
-    public byte[] wrap(byte[] payload) {
-        int n = payload.length;
-        byte[] pkt = new byte[5 + n];
-        pkt[0] = 0x02;
-        pkt[1] = (byte) (n + 3);
-        pkt[2] = (byte) nextUsbSeq();
-        pkt[3] = 1;   // total chunks
-        pkt[4] = 1;   // chunk index
-        System.arraycopy(payload, 0, pkt, 5, n);
-        return pkt;
-    }
-
-    /** Full USB packet for a mode command: wrap("ST" + innerSeq + modeChar + "EN"). */
-    public byte[] modePacket(char modeChar) {
-        byte[] payload = new byte[]{'S','T',(byte) nextSeq(),(byte) modeChar,'E','N'};
-        return wrap(payload);
-    }
-
-    public int sendRaw(byte[] pkt) {
-        if (conn == null || epOut == null) return -1;
-        return conn.bulkTransfer(epOut, pkt, pkt.length, 1000);
-    }
-
-    /** Synchronous bulk read of one packet; returns bytes read or null on timeout. */
-    public byte[] readBulk(int timeoutMs) {
-        if (conn == null || epIn == null) return null;
-        byte[] buf = new byte[64];
-        int n = conn.bulkTransfer(epIn, buf, buf.length, timeoutMs);
-        if (n <= 0) return null;
-        byte[] out = new byte[n];
-        System.arraycopy(buf, 0, out, 0, n);
-        return out;
-    }
-
-    private static String hex(byte[] a) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < a.length; i++) sb.append(String.format("%02x", a[i] & 0xff)).append(i % 2 == 1 ? " " : "");
-        return sb.toString().trim();
-    }
-
-    /** Wrap a payload as one chunk of a multi-chunk message. */
     private byte[] wrapChunk(byte[] payload, int off, int clen, int useq, int total, int idx) {
         byte[] pkt = new byte[5 + clen];
-        pkt[0] = 0x02;
-        pkt[1] = (byte) (clen + 3);
-        pkt[2] = (byte) useq;
-        pkt[3] = (byte) total;
-        pkt[4] = (byte) idx;
+        pkt[0] = 0x02; pkt[1] = (byte) (clen + 3);
+        pkt[2] = (byte) useq; pkt[3] = (byte) total; pkt[4] = (byte) idx;
         System.arraycopy(payload, off, pkt, 5, clen);
         return pkt;
     }
 
-    /** Transmit a captured IR payload ("ST..EN", inner) by re-chunking + wrapping + sending. */
-    public void transmitPayload(byte[] payload) {
-        int total = (payload.length + 55) / 56;
-        if (total < 1) total = 1;
+    private void sendPayload(byte[] payload) {
+        if (conn == null || epOut == null) return;
+        int total = Math.max(1, (payload.length + 55) / 56);
         int useq = nextUsbSeq();
         int off = 0;
         for (int idx = 1; idx <= total; idx++) {
             int clen = Math.min(56, payload.length - off);
-            byte[] pkt = wrapChunk(payload, off, clen, useq, total, idx);
-            sendRaw(pkt);
+            conn.bulkTransfer(epOut, wrapChunk(payload, off, clen, useq, total, idx), 5 + clen, 1000);
             off += clen;
-            try { Thread.sleep(5); } catch (InterruptedException ignore) {}
+            try { Thread.sleep(4); } catch (InterruptedException ignore) {}
         }
     }
 
-    /** Drain/ignore responses for a short time. */
-    private void drain(int ms) {
-        long d = System.currentTimeMillis() + ms;
-        while (System.currentTimeMillis() < d) { if (readBulk(150) == null) {} }
+    public void sendMode(char modeChar) {
+        sendPayload(new byte[]{'S','T',(byte) nextSeq(),(byte) modeChar,'E','N'});
     }
 
-    /**
-     * Read IN packets and reassemble a multi-chunk message whose payload is a learned IR
-     * frame ("ST" <seq> 'D' ...). Returns the inner payload, or null on timeout.
-     */
-    public byte[] readLearned(int timeoutMs) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        java.io.ByteArrayOutputStream acc = new java.io.ByteArrayOutputStream();
-        int curSeq = -1, needTotal = -1, haveIdx = 0;
-        while (System.currentTimeMillis() < deadline) {
-            byte[] p = readBulk(1500);
-            if (p == null || p.length < 5) continue;
-            if ((p[0] & 0xff) != 0x01) continue;
-            int len = (p[1] & 0xff) - 3;
-            int useq = p[2] & 0xff, total = p[3] & 0xff, idx = p[4] & 0xff;
-            if (len < 0 || len > 56 || 5 + len > p.length) continue;
-            if (idx == 1) { acc.reset(); curSeq = useq; needTotal = total; haveIdx = 0; }
-            if (useq != curSeq) continue;
-            acc.write(p, 5, len);
-            haveIdx = idx;
-            if (idx >= needTotal) {
-                byte[] payload = acc.toByteArray();
-                // learned IR frames carry 'D' (0x44) at payload[3]
-                if (payload.length >= 4 && payload[3] == 0x44) return payload;
-                // otherwise (ACK) keep listening
-                acc.reset(); curSeq = -1;
-            }
-        }
-        return null;
-    }
-
-    /** Handshake + learn one signal (no replay). Returns inner payload or null. */
-    public byte[] learnOnce(int timeoutMs) {
-        sendRaw(modePacket('L')); drain(250);
-        sendRaw(modePacket('R')); drain(250);
-        return readLearned(timeoutMs);
-    }
-
-    /** Verbose learn: logs handshake ACKs and every RX packet; returns learned payload or null. */
-    public byte[] learnVerbose(int timeoutMs, List<String> log) {
-        byte[] lp = modePacket('L');
-        int r1 = sendRaw(lp);
-        byte[] a1 = readBulk(700);
-        log.add("TX L ret=" + r1 + " ack=" + (a1 == null ? "none" : hex(a1)));
-        byte[] rp = modePacket('R');
-        int r2 = sendRaw(rp);
-        byte[] a2 = readBulk(700);
-        log.add("TX R ret=" + r2 + " ack=" + (a2 == null ? "none" : hex(a2)));
-        log.add("waiting for IR (press the remote now)...");
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        java.io.ByteArrayOutputStream acc = new java.io.ByteArrayOutputStream();
-        int curSeq = -1, needTotal = -1, rx = 0;
-        while (System.currentTimeMillis() < deadline) {
-            byte[] p = readBulk(1500);
-            if (p == null) continue;
-            rx++;
-            if (rx <= 8) log.add("RX " + hex(p));
-            if (p.length < 5 || (p[0] & 0xff) != 0x01) continue;
-            int len = (p[1] & 0xff) - 3;
-            int useq = p[2] & 0xff, total = p[3] & 0xff, idx = p[4] & 0xff;
-            if (len < 0 || len > 56 || 5 + len > p.length) continue;
-            if (idx == 1) { acc.reset(); curSeq = useq; needTotal = total; }
-            if (useq != curSeq) continue;
-            acc.write(p, 5, len);
-            if (idx >= needTotal) {
-                byte[] payload = acc.toByteArray();
-                if (payload.length >= 4 && payload[3] == 0x44) {
-                    log.add("got IR frame: " + payload.length + " bytes");
-                    return payload;
-                }
-                acc.reset(); curSeq = -1;
-            }
-        }
-        log.add("(no IR frame; total RX packets=" + rx + ")");
-        return null;
-    }
-
-    /**
-     * Convert a LEARNED frame ("ST" b 'D' <dur...> "EN") into a SEND frame
-     * ("ST" seq 'D' <freqIdx> <dur...> "EN") by inserting the frequency-index byte that
-     * the transmit path requires right after 'D'. (_t writes freqIdx at offset 4.)
-     */
+    /** Convert a learned frame ("ST" b 'D' <dur> "EN") to a send frame (adds freqIdx). */
     public byte[] buildSendFrame(byte[] learned, int freqIdx) {
         if (learned == null || learned.length < 6) return null;
-        int durLen = learned.length - 6; // strip "ST b D" (4) and "EN" (2)
+        int durLen = learned.length - 6;
         if (durLen < 1) return null;
         byte[] inner = new byte[5 + durLen + 2];
-        inner[0] = 'S'; inner[1] = 'T';
-        inner[2] = (byte) nextSeq();
-        inner[3] = 'D';
+        inner[0] = 'S'; inner[1] = 'T'; inner[2] = (byte) nextSeq(); inner[3] = 'D';
         inner[4] = (byte) freqIdx;
         System.arraycopy(learned, 4, inner, 5, durLen);
         inner[5 + durLen] = 'E'; inner[6 + durLen] = 'N';
         return inner;
     }
 
-    public byte[] lastSendFrame; // for logging/diagnostics
+    // ---- high-level ops (connection stays open; reader keeps draining) ----
 
-    /** Put dongle in send mode and transmit a captured (learned) payload. */
-    public void replayPayload(byte[] learnedPayload) {
+    /** Learn one IR signal. Returns the inner learned payload ("ST" b 'D' <dur> "EN"). */
+    public byte[] learn(int timeoutMs) {
+        frames.clear();
+        sendMode('L');
+        try { Thread.sleep(150); } catch (InterruptedException ignore) {}
+        sendMode('R');
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            byte[] f;
+            try { f = frames.poll(Math.max(1, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS); }
+            catch (InterruptedException e) { break; }
+            if (f != null && f.length >= 4 && f[3] == 0x44) return f; // 'D' = IR data
+        }
+        return null;
+    }
+
+    /** Transmit a learned payload (rebuilds as a send frame first). */
+    public void send(byte[] learnedPayload) {
         byte[] frame = buildSendFrame(learnedPayload, 0); // 0 = 38 kHz
         lastSendFrame = frame;
         if (frame == null) return;
-        sendRaw(modePacket('S')); drain(200);
-        transmitPayload(frame);
+        sendMode('S');
+        try { Thread.sleep(120); } catch (InterruptedException ignore) {}
+        sendPayload(frame);
     }
 
-    /** End-to-end test: handshake, learn one signal, then replay it. */
-    public List<String> learnAndReplay(int learnMs) {
-        List<String> log = new ArrayList<>();
-        sendRaw(modePacket('L')); drain(300);
-        sendRaw(modePacket('R')); drain(300);
-        log.add("point the ORIGINAL remote at the dongle and press ONE button...");
-        byte[] learned = readLearned(learnMs);
-        if (learned == null) { log.add("no IR captured (null)"); return log; }
-        log.add("LEARNED ok, " + learned.length + " bytes: " + hex(learned));
-        try { Thread.sleep(2000); } catch (InterruptedException ignore) {}
-        log.add("replaying now (watch your device)...");
-        // ensure send mode, then transmit
-        sendRaw(modePacket('S')); drain(200);
-        transmitPayload(learned);
-        log.add("replay sent.");
-        return log;
-    }
-
-    /** Full probe: handshake (L), then try S and R, logging every TX/RX, then record IR. */
-    public List<String> probe(int recordMs) {
-        List<String> log = new ArrayList<>();
-        char[] modes = {'L', 'S', 'R'};
-        for (char mc : modes) {
-            byte[] pkt = modePacket(mc);
-            int ret = sendRaw(pkt);
-            log.add("TX '" + mc + "' [" + hex(pkt) + "] ret=" + ret);
-            // read up to 3 quick replies to this command
-            for (int k = 0; k < 3; k++) {
-                byte[] r = readBulk(600);
-                if (r == null) break;
-                log.add("  RX " + hex(r));
-            }
-        }
-        log.add(">>> now point a remote & press buttons (" + (recordMs / 1000) + "s) <<<");
-        long deadline = System.currentTimeMillis() + recordMs;
-        int pkts = 0;
+    /** Verbose learn for diagnostics. */
+    public byte[] learnVerbose(int timeoutMs, List<String> log) {
+        frames.clear();
+        sendMode('L');
+        try { Thread.sleep(150); } catch (InterruptedException ignore) {}
+        sendMode('R');
+        log.add("sent L+R handshake; waiting for IR (press the remote)...");
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        int seen = 0;
         while (System.currentTimeMillis() < deadline) {
-            byte[] r = readBulk(1500);
-            if (r == null) continue;
-            log.add("RX " + hex(r));
-            if (++pkts > 80) break;
+            byte[] f;
+            try { f = frames.poll(Math.max(1, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS); }
+            catch (InterruptedException e) { break; }
+            if (f == null) continue;
+            seen++;
+            if (seen <= 6) log.add("frame " + hex(f));
+            if (f.length >= 4 && f[3] == 0x44) { log.add("got IR frame: " + f.length + " bytes"); return f; }
         }
-        log.add("-- recorded " + pkts + " IR packets --");
-        return log;
+        log.add("(no IR frame; frames seen=" + seen + ")");
+        return null;
     }
 
-    /** Read one 64-byte IN packet; returns the bytes actually read, or null on timeout. */
-    public byte[] readOnce(int timeoutMs) {
-        if (conn == null || epIn == null) return null;
-        UsbRequest req = new UsbRequest();
-        if (!req.initialize(conn, epIn)) { req.close(); return null; }
-        ByteBuffer buf = ByteBuffer.allocate(64);
-        try {
-            if (!req.queue(buf, 64)) return null;
-            long deadline = SystemClock.uptimeMillis() + timeoutMs;
-            UsbRequest done;
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                long rem = deadline - SystemClock.uptimeMillis();
-                done = conn.requestWait(rem < 1 ? 1 : rem);
-            } else {
-                done = conn.requestWait();
-            }
-            if (done == null || done != req) return null;
-            byte[] a = buf.array();
-            return a.clone();
-        } catch (Exception e) {
-            return null;
-        } finally {
-            try { req.close(); } catch (Exception ignore) {}
-        }
-    }
-
-    /**
-     * Enter learn mode and record everything the dongle returns for up to timeoutMs.
-     * Returns a human-readable hex log of every IN packet.
-     */
-    public List<String> recordLearn(int timeoutMs) {
-        List<String> log = new ArrayList<>();
-        int sent = sendRaw(modePacket('R'));
-        log.add("TX mode R -> bulk ret=" + sent);
-        long deadline = SystemClock.uptimeMillis() + timeoutMs;
-        int pkts = 0;
-        while (SystemClock.uptimeMillis() < deadline) {
-            byte[] a = readOnce(2000);
-            if (a == null) continue;
-            // trim: how many meaningful bytes? show first 32 bytes
-            StringBuilder sb = new StringBuilder("RX ");
-            int n = Math.min(a.length, 40);
-            for (int i = 0; i < n; i++) sb.append(String.format("%02x", a[i] & 0xff)).append(i % 2 == 1 ? " " : "");
-            log.add(sb.toString().trim());
-            if (++pkts > 60) break;
-        }
-        log.add("-- recorded " + pkts + " packets --");
-        return log;
+    private static String hex(byte[] a) {
+        StringBuilder sb = new StringBuilder();
+        int n = Math.min(a.length, 48);
+        for (int i = 0; i < n; i++) sb.append(String.format("%02x", a[i] & 0xff)).append(i % 2 == 1 ? " " : "");
+        return sb.toString().trim();
     }
 }

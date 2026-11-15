@@ -131,12 +131,11 @@ public class DiagnosticsActivity extends AppCompatActivity {
         }
     }
 
-    /** Always close and reopen for a clean dongle state each operation (v8 behaviour). */
+    /** Open once and keep open (background reader keeps the dongle responsive). */
     private boolean ensureRawOpen() {
         RawDongle raw = App.get().raw();
-        try { raw.close(); } catch (Throwable ignore) {}
+        if (raw.isOpen()) return true;
         try { App.get().dongle().disconnect(); } catch (Throwable ignore) {}
-        try { Thread.sleep(120); } catch (InterruptedException ignore) {}
         return raw.open();
     }
 
@@ -166,7 +165,7 @@ public class DiagnosticsActivity extends AppCompatActivity {
                 if (p == null) { line("nothing learned yet — press למד first"); return; }
                 if (!ensureRawOpen()) { line("raw open failed"); return; }
                 line("building send frame from " + p.length + "-byte learned frame...");
-                App.get().raw().replayPayload(p);
+                App.get().raw().send(p);
                 byte[] f = App.get().raw().lastSendFrame;
                 line("sent frame (" + (f == null ? 0 : f.length) + " bytes). did the device react?");
             } catch (Throwable t) {
