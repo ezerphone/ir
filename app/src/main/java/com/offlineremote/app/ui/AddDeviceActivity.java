@@ -92,6 +92,8 @@ public class AddDeviceActivity extends AppCompatActivity {
                 getString(R.string.source_smartir), () -> push(this::acManufacturers)));
         rows.add(new SimpleAdapter.Row(getString(R.string.category_tv),
                 getString(R.string.source_smartir), () -> push(this::tvManufacturers)));
+        rows.add(new SimpleAdapter.Row("מנורה צבעונית (LED)",
+                "מאגר Flipper-IRDB · 168 שלטים", () -> push(this::ledBrands)));
         setRows(getString(R.string.pick_category), rows);
     }
 
@@ -189,6 +191,43 @@ public class AddDeviceActivity extends AppCompatActivity {
         r.name = e.label();
         App.get().store().add(r);
         open(r);
+    }
+
+    private void ledBrands() {
+        loadRows(getString(R.string.pick_manufacturer), () -> {
+            List<SimpleAdapter.Row> rows = new ArrayList<>();
+            for (String b : App.get().led().brands()) {
+                final String brand = b;
+                rows.add(new SimpleAdapter.Row(brand, null, () -> push(() -> ledModels(brand))));
+            }
+            return rows;
+        });
+    }
+
+    private void ledModels(String brand) {
+        loadRows(brand, () -> {
+            List<SimpleAdapter.Row> rows = new ArrayList<>();
+            for (com.offlineremote.app.sources.LedLibrarySource.Dev d : App.get().led().models(brand)) {
+                final com.offlineremote.app.sources.LedLibrarySource.Dev dev = d;
+                rows.add(new SimpleAdapter.Row(dev.model, dev.keys + " כפתורים",
+                        () -> saveLed(dev)));
+            }
+            return rows;
+        });
+    }
+
+    private void saveLed(com.offlineremote.app.sources.LedLibrarySource.Dev dev) {
+        progress.setVisibility(View.VISIBLE);
+        App.get().io().execute(() -> {
+            List<IrKey> keys = App.get().led().keys(dev);
+            SavedRemote r = new SavedRemote();
+            r.source = "led";
+            r.category = "led";
+            r.name = dev.model;
+            r.keys = keys;
+            App.get().store().add(r);
+            runOnUiThread(() -> { progress.setVisibility(View.GONE); open(r); });
+        });
     }
 
     private void saveTv(SmartIrSource.Entry e) {
