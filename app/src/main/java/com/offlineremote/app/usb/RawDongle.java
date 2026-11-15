@@ -109,44 +109,29 @@ public final class RawDongle {
     private void startReader() {
         running = true;
         reader = new Thread(() -> {
-            UsbDeviceConnection c = conn;
-            UsbEndpoint in = epIn;
-            if (c == null || in == null) return;
-            android.hardware.usb.UsbRequest req = new android.hardware.usb.UsbRequest();
-            if (!req.initialize(c, in)) { req.close(); return; }
-            java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(64);
             ByteArrayOutputStream acc = new ByteArrayOutputStream();
             int curSeq = -1, needTotal = -1;
+            byte[] buf = new byte[64];
             while (running) {
-                buf.clear();
-                try {
-                    if (!req.queue(buf, 64)) break;
-                    android.hardware.usb.UsbRequest done;
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        done = c.requestWait(300);
-                    } else {
-                        done = c.requestWait();
-                    }
-                    if (done == null) continue;      // timeout; re-queue
-                    if (done != req) continue;
-                } catch (Throwable t) { continue; }
-                byte[] a = buf.array();
-                int n = buf.position() > 0 ? buf.position() : 64;
+                UsbDeviceConnection c = conn;
+                UsbEndpoint in = epIn;
+                if (c == null || in == null) break;
+                int n;
+                try { n = c.bulkTransfer(in, buf, buf.length, 250); } catch (Throwable t) { continue; }
                 if (n < 5) continue;
-                int b0 = a[0] & 0xff;
+                int b0 = buf[0] & 0xff;
                 if (b0 != 0x01 && b0 != 0x02) continue;
-                int len = (a[1] & 0xff) - 3;
-                int useq = a[2] & 0xff, total = a[3] & 0xff, idx = a[4] & 0xff;
-                if (len < 0 || len > 56 || 5 + len > 64) continue;
+                int len = (buf[1] & 0xff) - 3;
+                int useq = buf[2] & 0xff, total = buf[3] & 0xff, idx = buf[4] & 0xff;
+                if (len < 0 || len > 56 || 5 + len > n) continue;
                 if (idx == 1) { acc.reset(); curSeq = useq; needTotal = total; }
                 if (useq != curSeq) continue;
-                acc.write(a, 5, len);
+                acc.write(buf, 5, len);
                 if (idx >= needTotal) {
                     frames.offer(acc.toByteArray());
                     acc.reset(); curSeq = -1;
                 }
             }
-            try { req.close(); } catch (Throwable ignore) {}
         }, "dongle-reader");
         reader.setDaemon(true);
         reader.start();
