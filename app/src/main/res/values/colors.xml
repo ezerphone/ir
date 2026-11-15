@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#0E0F13</color>
-    <color name="surface">#171A21</color>
-    <color name="surface2">#20242D</color>
-    <color name="primary">#36D1A6</color>
-    <color name="primaryDark">#1FA183</color>
-    <color name="onPrimary">#07130F</color>
-    <color name="textPrimary">#F2F4F7</color>
-    <color name="textSecondary">#9AA3B2</color>
-    <color name="danger">#E5544B</color>
-    <color name="keyBg">#242A34</color>
-    <color name="keyBgPressed">#36D1A6</color>
+    <color name="bg">#07090E</color>
+    <color name="surface">#0E1420</color>
+    <color name="surface2">#161D2A</color>
+    <color name="surface3">#1E2736</color>
+    <color name="line">#28323F</color>
+    <color name="primary">#27C7BD</color>
+    <color name="primaryDark">#1FA89F</color>
+    <color name="onPrimary">#06211F</color>
+    <color name="accent2">#3B82F6</color>
+    <color name="textPrimary">#E9EEF5</color>
+    <color name="textSecondary">#8A96A6</color>
+    <color name="danger">#EF4444</color>
+    <color name="power">#EF4444</color>
+    <color name="keyBg">#1E2736</color>
+    <color name="keyBgPressed">#27C7BD</color>
 </resources>

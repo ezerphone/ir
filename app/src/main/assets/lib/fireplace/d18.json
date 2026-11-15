@@ -1,0 +1,1 @@
+{"brand":"Whalen Furniture","model":"HDFP86-47","buttons":[{"n":"Power_on_off","p":"NEC","a":"0100","c":"1400"},{"n":"Flame_control","p":"NEC","a":"0100","c":"1D00"},{"n":"Heater_on_off","p":"NEC","a":"0100","c":"1200"},{"n":"Timer","p":"NEC","a":"0100","c":"1900"},{"n":"Temp_up","p":"NEC","a":"0100","c":"1A00"},{"n":"Temp_down","p":"NEC","a":"0100","c":"0500"}]}

@@ -22,9 +22,10 @@
         android:padding="10dp"
         android:hint="חיפוש דגם / מותג..."
         android:inputType="text"
-        android:background="@color/surface"
+        android:background="@drawable/bg_search"
         android:textColor="@color/textPrimary"
         android:textColorHint="@color/textSecondary"
+        android:textSize="14sp"
         android:visibility="gone" />
 
     <ProgressBar

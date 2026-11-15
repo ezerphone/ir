@@ -139,9 +139,9 @@ public class RemoteActivity extends AppCompatActivity {
         tempText = v.findViewById(R.id.tempText);
         final Spinner modeSpinner = v.findViewById(R.id.modeSpinner);
         final Spinner fanSpinner = v.findViewById(R.id.fanSpinner);
-        Button tempMinus = v.findViewById(R.id.tempMinus);
-        Button tempPlus = v.findViewById(R.id.tempPlus);
-        Button powerBtn = v.findViewById(R.id.powerBtn);
+        TextView tempMinus = v.findViewById(R.id.tempMinus);
+        TextView tempPlus = v.findViewById(R.id.tempPlus);
+        TextView powerBtn = v.findViewById(R.id.powerBtn);
         Button sendBtn = v.findViewById(R.id.sendBtn);
         sendBtn.setText("שלח מצב");
 
@@ -202,22 +202,45 @@ public class RemoteActivity extends AppCompatActivity {
 
     private void buildButtons() {
         RecyclerView rv = new RecyclerView(this);
-        rv.setLayoutManager(new GridLayoutManager(this, 3));
-        SimpleAdapter adapter = new SimpleAdapter();
+        int cols = "led".equals(remote.category) ? 4 : 3;
+        rv.setLayoutManager(new GridLayoutManager(this, cols));
+        SimpleAdapter adapter = new SimpleAdapter(R.layout.item_key);
         rv.setAdapter(adapter);
+        rv.setClipToPadding(false);
+        int pad = (int) (6 * getResources().getDisplayMetrics().density);
+        rv.setPadding(pad, pad, pad, pad);
         content.addView(rv, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
+        boolean led = "led".equals(remote.category);
         List<SimpleAdapter.Row> rows = new ArrayList<>();
         for (IrKey k : remote.keys) {
             final Code c = k.code;
-            rows.add(new SimpleAdapter.Row(k.label == null ? "" : k.label, null,
-                    () -> App.get().io().execute(() -> sendCodeResult(c))));
+            String label = k.label == null ? "" : k.label;
+            SimpleAdapter.Row row = new SimpleAdapter.Row(label, null,
+                    () -> App.get().io().execute(() -> sendCodeResult(c)));
+            if (led) { int col = colorFor(label); if (col != 0) row.bg = col; }
+            rows.add(row);
         }
         adapter.submit(rows);
         if (remote.keys.isEmpty()) {
-            Toast.makeText(this, "no keys", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "אין כפתורים", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** Map a colour-named LED button to a swatch colour, else 0. */
+    private static int colorFor(String name) {
+        String n = name.toLowerCase();
+        if (n.contains("red") || n.contains("אדום")) return 0xFFEF4444;
+        if (n.contains("green") || n.contains("ירוק")) return 0xFF22C55E;
+        if (n.contains("blue") || n.contains("כחול")) return 0xFF3B82F6;
+        if (n.contains("white") || n.contains("לבן")) return 0xFFF1F5F9;
+        if (n.contains("orange") || n.contains("כתום")) return 0xFFF97316;
+        if (n.contains("yellow") || n.contains("צהוב")) return 0xFFEAB308;
+        if (n.contains("purple") || n.contains("violet") || n.contains("סגול")) return 0xFF8B5CF6;
+        if (n.contains("pink") || n.contains("ורוד")) return 0xFFEC4899;
+        if (n.contains("cyan") || n.contains("teal") || n.contains("תכלת")) return 0xFF14B8A6;
+        return 0;
     }
 
     // ---------------- send ----------------

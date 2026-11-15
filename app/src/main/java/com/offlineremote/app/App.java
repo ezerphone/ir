@@ -5,7 +5,7 @@ import android.app.Application;
 import com.offlineremote.app.ir.TiqiaaTx;
 import com.offlineremote.app.sources.LocalIrdbSource;
 import com.offlineremote.app.sources.SmartIrSource;
-import com.offlineremote.app.sources.LedLibrarySource;
+import com.offlineremote.app.sources.FlipperLibrary;
 import com.offlineremote.app.store.RemoteStore;
 import com.offlineremote.app.usb.DongleManager;
 
@@ -21,7 +21,7 @@ public final class App extends Application {
     private TiqiaaTx tx;
     private RemoteStore store;
     private SmartIrSource smartIr;
-    private LedLibrarySource led;
+    private FlipperLibrary lib;
     private LocalIrdbSource localDb; // created lazily (loads native lib)
     private com.offlineremote.app.usb.RawDongle raw; // clean-room driver
     public volatile byte[] lastLearnedPayload;       // last learned IR (raw driver)
@@ -37,14 +37,14 @@ public final class App extends Application {
         tx = new TiqiaaTx(this, dongle);
         store = new RemoteStore(this);
         smartIr = new SmartIrSource(this);
-        led = new LedLibrarySource(this);
+        lib = new FlipperLibrary(this);
     }
 
     public DongleManager dongle() { return dongle; }
     public TiqiaaTx tx() { return tx; }
     public RemoteStore store() { return store; }
     public SmartIrSource smartIr() { return smartIr; }
-    public LedLibrarySource led() { return led; }
+    public FlipperLibrary lib() { return lib; }
 
     /** Transient preview session for try-before-save (not persisted). */
     public com.offlineremote.app.model.PreviewSession preview;

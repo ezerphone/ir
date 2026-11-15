@@ -51,25 +51,43 @@ public class RemoteListAdapter extends RecyclerView.Adapter<RemoteListAdapter.VH
     }
 
     private static String subtitle(SavedRemote r) {
-        String src;
         switch (r.source == null ? "" : r.source) {
-            case "smartir": src = "SmartIR"; break;
-            case "local":   src = "ZaZa"; break;
-            case "learned": src = "Learned"; break;
-            case "cloud":   src = "Cloud"; break;
-            default:        src = ""; break;
+            case "smartir": return "SmartIR";
+            case "lib":     return "ספרייה";
+            case "learned": return "למידה";
+            case "local":   return "ZaZa";
+            default:        return "";
         }
-        return src;
     }
 
     private static String iconFor(String cat) {
         if (cat == null) return "📡";
         switch (cat) {
-            case "ac":  return "❄️";
-            case "tv":  return "📺";
-            case "stb": return "📦";
-            case "fan": return "🌀";
-            default:    return "📡";
+            case "ac":          return "❄️";
+            case "tv":          return "📺";
+            case "led":         return "💡";
+            case "speaker":     return "🔊";
+            case "soundbar":    return "🔊";
+            case "receiver":    return "🎚";
+            case "projector":   return "📽";
+            case "fan":         return "🌀";
+            case "cable":       return "📡";
+            case "streaming":   return "▶";
+            case "bluray":      return "💿";
+            case "dvd":         return "📀";
+            case "cd":          return "💿";
+            case "heater":      return "🔥";
+            case "airpurifier": return "🌬";
+            case "humidifier":  return "💧";
+            case "vacuum":      return "🤖";
+            case "camera":      return "📷";
+            case "car":         return "🚗";
+            case "fireplace":   return "🔥";
+            case "vcr":         return "📼";
+            case "monitor":     return "🖥";
+            case "console":     return "🎮";
+            case "stb":         return "📦";
+            default:            return "📡";
         }
     }
 

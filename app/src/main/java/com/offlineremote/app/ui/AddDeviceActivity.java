@@ -16,6 +16,7 @@ import com.offlineremote.app.model.IrKey;
 import com.offlineremote.app.model.SavedRemote;
 import com.offlineremote.app.sources.LocalIrdbSource;
 import com.offlineremote.app.sources.SmartIrSource;
+import com.offlineremote.app.sources.FlipperLibrary;
 import com.tiqiaa.local.LocalIrDb;
 
 import java.util.ArrayDeque;
@@ -121,14 +122,56 @@ public class AddDeviceActivity extends AppCompatActivity {
     // ---------------- screens ----------------
 
     private void rootScreen() {
-        List<SimpleAdapter.Row> rows = new ArrayList<>();
-        rows.add(new SimpleAdapter.Row(getString(R.string.category_ac),
-                getString(R.string.source_smartir), () -> push(this::acManufacturers)));
-        rows.add(new SimpleAdapter.Row(getString(R.string.category_tv),
-                getString(R.string.source_smartir), () -> push(this::tvManufacturers)));
-        rows.add(new SimpleAdapter.Row("מנורה צבעונית (LED)",
-                "מאגר Flipper-IRDB · 168 שלטים", () -> push(this::ledBrands)));
-        setRows(getString(R.string.pick_category), rows);
+        loadRows(getString(R.string.pick_category), () -> {
+            List<SimpleAdapter.Row> rows = new ArrayList<>();
+            // AC keeps its stateful SmartIR panel
+            rows.add(new SimpleAdapter.Row("❄  מזגן",
+                    "מאגר SmartIR · " + App.get().smartIr().manufacturers("ac").size() + " יצרנים",
+                    () -> push(this::acManufacturers)));
+            // every other category comes from the bundled library
+            for (FlipperLibrary.Cat c : App.get().lib().categories()) {
+                final FlipperLibrary.Cat cat = c;
+                rows.add(new SimpleAdapter.Row(cat.icon + "  " + cat.he,
+                        cat.count + " דגמים", () -> push(() -> libBrands(cat))));
+            }
+            return rows;
+        });
+    }
+
+    private void libBrands(FlipperLibrary.Cat cat) {
+        loadRows(cat.he, () -> {
+            List<SimpleAdapter.Row> rows = new ArrayList<>();
+            for (String b : App.get().lib().brands(cat.slug)) {
+                final String brand = b;
+                rows.add(new SimpleAdapter.Row(com.offlineremote.app.util.HebrewNames.display(brand),
+                        null, () -> push(() -> libModels(cat, brand))));
+            }
+            return rows;
+        });
+    }
+
+    private void libModels(FlipperLibrary.Cat cat, String brand) {
+        loadRows(com.offlineremote.app.util.HebrewNames.only(brand), () -> {
+            final List<FlipperLibrary.Dev> devs = App.get().lib().models(cat.slug, brand);
+            final List<com.offlineremote.app.model.PreviewSession.Builder> builders = new ArrayList<>();
+            for (FlipperLibrary.Dev d : devs) {
+                final FlipperLibrary.Dev dev = d;
+                builders.add(() -> {
+                    SavedRemote r = new SavedRemote();
+                    r.source = "lib"; r.category = cat.slug;
+                    r.name = com.offlineremote.app.util.HebrewNames.only(brand) + " · " + dev.model;
+                    r.keys = App.get().lib().keys(dev);
+                    return r;
+                });
+            }
+            List<SimpleAdapter.Row> rows = new ArrayList<>();
+            for (int i = 0; i < devs.size(); i++) {
+                final int idx = i;
+                rows.add(new SimpleAdapter.Row(devs.get(i).model, devs.get(i).keys + " כפתורים",
+                        () -> openPreview(builders, idx)));
+            }
+            return rows;
+        });
     }
 
     private static String modelLabel(SmartIrSource.Entry e) {
@@ -257,40 +300,6 @@ public class AddDeviceActivity extends AppCompatActivity {
         open(r);
     }
 
-    private void ledBrands() {
-        loadRows(getString(R.string.pick_manufacturer), () -> {
-            List<SimpleAdapter.Row> rows = new ArrayList<>();
-            for (String b : App.get().led().brands()) {
-                final String brand = b;
-                rows.add(new SimpleAdapter.Row(brand, null, () -> push(() -> ledModels(brand))));
-            }
-            return rows;
-        });
-    }
-
-    private void ledModels(String brand) {
-        loadRows(brand, () -> {
-            final List<com.offlineremote.app.sources.LedLibrarySource.Dev> devs = App.get().led().models(brand);
-            final List<com.offlineremote.app.model.PreviewSession.Builder> builders = new ArrayList<>();
-            for (com.offlineremote.app.sources.LedLibrarySource.Dev d : devs) {
-                final com.offlineremote.app.sources.LedLibrarySource.Dev dev = d;
-                builders.add(() -> {
-                    SavedRemote r = new SavedRemote();
-                    r.source = "led"; r.category = "led";
-                    r.name = dev.model;
-                    r.keys = App.get().led().keys(dev);
-                    return r;
-                });
-            }
-            List<SimpleAdapter.Row> rows = new ArrayList<>();
-            for (int i = 0; i < devs.size(); i++) {
-                final int idx = i;
-                rows.add(new SimpleAdapter.Row(devs.get(i).model, devs.get(i).keys + " כפתורים",
-                        () -> openPreview(builders, idx)));
-            }
-            return rows;
-        });
-    }
 
     private void saveTv(SmartIrSource.Entry e) {
         progress.setVisibility(View.VISIBLE);
