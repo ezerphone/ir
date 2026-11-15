@@ -252,8 +252,8 @@ public class RemoteActivity extends BaseActivity {
         col.addView(top, tlp);
 
         dial = new DialView(this);
-        int screenW = getResources().getDisplayMetrics().widthPixels - Ui.dp(this, 36);
-        int ds = Math.min(Ui.dp(this, 240), screenW);
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int ds = Math.min(Ui.dp(this, 360), Math.round(screenW * 0.8f));
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(ds, ds);
         dlp.topMargin = side;
         col.addView(dial, dlp);
@@ -359,6 +359,7 @@ public class RemoteActivity extends BaseActivity {
         // 1. power / home / mute
         LinearLayout r1 = new LinearLayout(this);
         r1.setOrientation(LinearLayout.HORIZONTAL);
+        r1.setGravity(Gravity.CENTER);
         String powerRole = one.containsKey(KeyRoles.POWER) ? KeyRoles.POWER : (one.containsKey(KeyRoles.ON) ? KeyRoles.ON : null);
         for (String role : new String[]{powerRole, KeyRoles.HOME, KeyRoles.MUTE}) {
             if (role == null || !one.containsKey(role)) continue;
@@ -369,7 +370,7 @@ public class RemoteActivity extends BaseActivity {
             Ui.addGap(r1, v, 26);
             used.add(role);
         }
-        if (r1.getChildCount() > 0) col.addView(r1);
+        if (r1.getChildCount() > 0) col.addView(r1, fullWidth(0));
 
         // 2. D-pad
         boolean anyArrow = false;
@@ -411,9 +412,8 @@ public class RemoteActivity extends BaseActivity {
                 rr.addView(rockers.get(j), lp);
             }
             if (rockers.size() - i == 1) {
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, 1, 1f);
-                lp.setMarginStart(Ui.dp(this, 14));
-                rr.addView(new View(this), lp);
+                rr.addView(new View(this), 0, new LinearLayout.LayoutParams(0, 1, 0.5f));
+                rr.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 0.5f));
             }
             col.addView(rr, fullWidth(col.getChildCount() > 0 ? 13 : 0));
         }
@@ -421,6 +421,7 @@ public class RemoteActivity extends BaseActivity {
         // 4. number pad / menu / source / back
         LinearLayout r4 = new LinearLayout(this);
         r4.setOrientation(LinearLayout.HORIZONTAL);
+        r4.setGravity(Gravity.CENTER);
         if (!nums.isEmpty()) {
             FrameLayout v = Ui.key(this, 48, R.drawable.ic_num, null, icon);
             v.setOnClickListener(x -> showNumPad(nums));
@@ -434,17 +435,19 @@ public class RemoteActivity extends BaseActivity {
             Ui.addGap(r4, v, 26);
             used.add(role);
         }
-        if (r4.getChildCount() > 0) col.addView(r4, topMargin(col.getChildCount() > 0 ? 13 : 0));
+        if (r4.getChildCount() > 0) col.addView(r4, fullWidth(col.getChildCount() > 0 ? 13 : 0));
 
         // 5. coloured keys (e.g. teletext red/green/yellow/blue)
+        if (colors.size() == 1) { rest.add(colors.get(0)); colors.clear(); }
         if (!colors.isEmpty()) {
             LinearLayout r5 = new LinearLayout(this);
             r5.setOrientation(LinearLayout.HORIZONTAL);
+            r5.setGravity(Gravity.CENTER);
             for (IrKey k : colors) {
                 View s = swatch(k, 40, true);
                 Ui.addGap(r5, s, 14);
             }
-            col.addView(r5, topMargin(13));
+            col.addView(r5, fullWidth(13));
         }
 
         // 6. everything else as round keys, 4 per row
@@ -526,8 +529,10 @@ public class RemoteActivity extends BaseActivity {
                 if (i + j < keys.size()) {
                     IrKey k = keys.get(i + j);
                     String role = KeyRoles.of(k, led);
-                    int ic = KeyRoles.GENERIC.equals(role) ? 0 : KeyRoles.iconFor(role);
-                    String label = KeyRoles.GENERIC.equals(role) ? KeyRoles.hebrew(k.label) : KeyRoles.roleName(role);
+                    String raw = k.label == null ? "" : k.label.replace('_', ' ').trim();
+                    String label = KeyRoles.hebrew(k.label);
+                    boolean translated = !label.equalsIgnoreCase(raw);
+                    int ic = (!KeyRoles.GENERIC.equals(role) && !translated) ? KeyRoles.iconFor(role) : 0;
                     if (KeyRoles.NUM.equals(role)) { ic = 0; label = String.valueOf(Math.max(0, KeyRoles.digit(k))); }
                     FrameLayout v = Ui.key(this, 56, ic, label,
                             KeyRoles.POWER.equals(role) ? Ui.color(this, R.color.power) : icon);
@@ -595,6 +600,7 @@ public class RemoteActivity extends BaseActivity {
             else rest.add(k);
         }
         if (on == null && power != null) { on = power; power = null; }
+        shadeColors(colors);
         if (power != null) rest.add(0, power);
 
         // on / off
@@ -667,6 +673,23 @@ public class RemoteActivity extends BaseActivity {
                 else r.addView(new View(this), lp);
             }
             col.addView(r, fullWidth(i == 0 ? 12 : 10));
+        }
+    }
+
+    /** Library colour rows (Red1..Red5, Green_0..4, Blue...) get the shades of a 24-key remote. */
+    private static void shadeColors(List<IrKey> colors) {
+        int[][] shades = {
+                {0xFFEF4444, 0xFFFF5A1F, 0xFFFF8A00, 0xFFFFB000, 0xFFEAB308},   // red -> yellow
+                {0xFF22C55E, 0xFF34D399, 0xFF10B981, 0xFF14B8A6, 0xFF06B6D4},   // green -> cyan
+                {0xFF3B82F6, 0xFF6366F1, 0xFF8B5CF6, 0xFFA855F7, 0xFFEC4899}};  // blue -> pink
+        int[] base = {0xFFEF4444, 0xFF22C55E, 0xFF3B82F6};
+        int[] count = new int[3];
+        for (IrKey k : colors) {
+            if (k.color != 0) continue;
+            int c = KeyRoles.colorFor(k.label);
+            for (int b = 0; b < 3; b++) {
+                if (c == base[b]) { k.color = shades[b][Math.min(count[b], 4)]; count[b]++; break; }
+            }
         }
     }
 

@@ -41,6 +41,7 @@
                     android:padding="0dp"
                     android:hint="למשל: מזגן חדר שינה"
                     android:inputType="text"
+                    android:textDirection="rtl"
                     android:textColor="@color/ink"
                     android:textColorHint="@color/sub"
                     android:textSize="13sp" />
@@ -73,8 +74,8 @@
                 android:paddingVertical="14dp"
                 android:background="@drawable/bg_btn_blue">
                 <ImageView
-                    android:layout_width="13dp"
-                    android:layout_height="13dp"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
                     android:src="@drawable/ic_record"
                     android:tint="#FFFFFF" />
                 <TextView

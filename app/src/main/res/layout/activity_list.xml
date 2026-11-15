@@ -34,6 +34,7 @@
             android:background="@null"
             android:hint="חיפוש דגם / מותג..."
             android:inputType="text"
+                    android:textDirection="rtl"
             android:imeOptions="actionSearch"
             android:textColor="@color/ink"
             android:textColorHint="@color/sub"

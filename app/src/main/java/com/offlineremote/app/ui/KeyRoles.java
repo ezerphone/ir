@@ -73,6 +73,10 @@ public final class KeyRoles {
             if (isDown(n) || raw.endsWith("-")) return TEMP_DN;
         }
 
+        if (has(n, "light") && !has(n, "lightblue", "lightgreen", "lighton", "lightoff")) {
+            if (has(n, "more") || isUp(n) || raw.endsWith("+")) return BRIGHT_UP;
+            if (has(n, "less") || isDown(n) || raw.endsWith("-")) return BRIGHT_DN;
+        }
         if (led) {
             if (n.equals("up") || n.equals("plus") || n.equals("+")) return BRIGHT_UP;
             if (n.equals("down") || n.equals("minus") || n.equals("-")) return BRIGHT_DN;
@@ -128,7 +132,7 @@ public final class KeyRoles {
             case "coolwhite": case "cool": return 0xFFE0F2FE;
         }
         if (n.isEmpty()) return 0;
-        if (has(n, "lightblue", "skyblue", "תכלת")) return 0xFF7DD3FC;
+        if (has(n, "lightblue", "skyblue", "azure", "תכלת")) return 0xFF7DD3FC;
         if (has(n, "lightgreen", "lime")) return 0xFFA3E635;
         if (has(n, "darkblue", "navy")) return 0xFF1E40AF;
         if (has(n, "turquoise", "teal", "cyan", "aqua")) return 0xFF14B8A6;
@@ -186,7 +190,13 @@ public final class KeyRoles {
             case "stop": return "עצור";
             case "rec": case "record": return "הקלטה";
             case "rewind": case "rew": return "אחורה";
-            case "fastforward": case "forward": case "ff": case "fwd": return "קדימה";
+            case "fastforward": case "fastfwd": case "forward": case "ff": case "fwd": return "קדימה";
+            case "prech": case "lastch": case "chprev": case "recall": return "ערוץ קודם";
+            case "minus": case "dash": return "—";
+            case "morelight": case "lightup": return "בהירות +";
+            case "lesslight": case "lightdn": case "lightdown": return "בהירות −";
+            case "emanual": return "מדריך";
+            case "psize": return "גודל תמונה";
             case "next": return "הבא";
             case "prev": case "previous": return "הקודם";
             case "sleep": return "שינה";

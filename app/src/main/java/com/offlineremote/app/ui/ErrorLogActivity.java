@@ -18,6 +18,7 @@ public class ErrorLogActivity extends BaseActivity {
         bar.rotate(false);
         TextView body = findViewById(R.id.logText);
         body.setLayoutDirection(android.view.View.LAYOUT_DIRECTION_LTR);
+        body.setTextDirection(android.view.View.TEXT_DIRECTION_LTR);
         String log = ErrorLog.read(this);
         body.setText(log.isEmpty() ? "אין רשומות עדיין." : log);
         findViewById(R.id.btnClear).setOnClickListener(v -> { ErrorLog.clear(this); body.setText("אין רשומות עדיין."); });

@@ -13,6 +13,7 @@
         <item name="android:textColorPrimary">@color/ink</item>
         <item name="android:textColorSecondary">@color/sub</item>
         <item name="android:statusBarColor">@color/ink</item>
+        <item name="android:textViewStyle">@style/TextRtl</item>
         <item name="fontFamily">@font/assistant</item>
         <item name="android:fontFamily">@font/assistant</item>
     </style>
