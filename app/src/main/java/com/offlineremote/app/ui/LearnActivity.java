@@ -33,7 +33,7 @@ public class LearnActivity extends AppCompatActivity {
     private EditText nameInput, keyLabel;
     private Spinner categorySpinner;
     private SimpleAdapter adapter;
-    private android.widget.TextView status, logView;
+    private android.widget.TextView status;
     private final List<IrKey> learned = new ArrayList<>();
 
     private static final String[] CAT_VALUES = {"ac", "tv", "stb", "fan", "other"};
@@ -50,8 +50,6 @@ public class LearnActivity extends AppCompatActivity {
         keyLabel = findViewById(R.id.keyLabel);
         categorySpinner = findViewById(R.id.categorySpinner);
         status = findViewById(R.id.learnStatus);
-        logView = findViewById(R.id.learnLog);
-        logView.setMovementMethod(new android.text.method.ScrollingMovementMethod());
         ArrayAdapter<String> catAdapter = new ArrayAdapter<>(this,
                 android.R.layout.simple_spinner_item, CAT_LABELS);
         catAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -78,28 +76,26 @@ public class LearnActivity extends AppCompatActivity {
 
     private void setStatus(String s) { runOnUiThread(() -> status.setText(s)); }
 
-    private void showLog(java.util.List<String> lg) {
-        StringBuilder sb = new StringBuilder();
-        for (String s : lg) sb.append("• ").append(s).append('\n');
-        runOnUiThread(() -> logView.setText(sb.toString().trim()));
-    }
-
     private void learnOne() {
         final String label = keyLabel.getText().toString().trim();
         if (TextUtils.isEmpty(label)) {
             Toast.makeText(this, "שם כפתור?", Toast.LENGTH_SHORT).show();
             return;
         }
-        setStatus("מכוון את השלט המקורי לדונגל ולוחץ כפתור... (עד 12 שנ')");
+        setStatus("⏺ מכוון את השלט המקורי לדונגל ולוחץ כפתור...");
         App.get().io().execute(() -> {
             if (!ensureRawOpen()) {
+                com.offlineremote.app.util.ErrorLog.add(this, "LEARN open-failed (permission/attach)");
                 setStatus("✗ הדונגל לא נפתח (הרשאה? מחובר?)");
                 return;
             }
             java.util.List<String> lg = new java.util.ArrayList<>();
-            // EXACT same call the Diagnostics screen uses.
             byte[] frame = App.get().raw().learnLogged(12000, lg);
-            showLog(lg);
+            // quiet log to file only — not shown here
+            StringBuilder detail = new StringBuilder();
+            for (String s : lg) detail.append(s).append(" | ");
+            com.offlineremote.app.util.ErrorLog.add(this,
+                    (frame == null ? "LEARN FAIL \"" : "LEARN OK \"") + label + "\"  " + detail);
             runOnUiThread(() -> {
                 if (frame == null) {
                     status.setText("✗ לא נקלט אות — נסה שוב, כוון את השלט ישירות לדונגל");
@@ -108,7 +104,7 @@ public class LearnActivity extends AppCompatActivity {
                 Code c = Code.nativeCode(38000, frame); // native learned frame
                 learned.add(new IrKey(label, 0, c));
                 keyLabel.setText("");
-                status.setText("✓ נקלט \"" + label + "\" (" + frame.length + " בייט)");
+                status.setText("✓ נקלט \"" + label + "\"");
                 refreshKeys();
             });
         });

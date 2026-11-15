@@ -14,6 +14,19 @@
         app:navigationIcon="@android:drawable/ic_menu_revert"
         app:titleTextColor="@color/textPrimary" />
 
+    <EditText
+        android:id="@+id/search"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="8dp"
+        android:padding="10dp"
+        android:hint="חיפוש דגם / מותג..."
+        android:inputType="text"
+        android:background="@color/surface"
+        android:textColor="@color/textPrimary"
+        android:textColorHint="@color/textSecondary"
+        android:visibility="gone" />
+
     <ProgressBar
         android:id="@+id/progress"
         android:layout_width="wrap_content"

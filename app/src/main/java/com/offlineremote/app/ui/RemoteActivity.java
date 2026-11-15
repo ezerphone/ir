@@ -28,10 +28,15 @@ import java.util.List;
 public class RemoteActivity extends AppCompatActivity {
 
     public static final String EXTRA_ID = "remote_id";
+    public static final String EXTRA_PREVIEW = "preview";
 
     private SavedRemote remote;
     private FrameLayout content;
     private TextView note;
+    private MaterialToolbar toolbar;
+    private boolean preview;
+    private com.offlineremote.app.model.PreviewSession session;
+    private android.view.GestureDetector gesture;
 
     // AC state
     private SmartIrSource.AcSpec acSpec;
@@ -43,22 +48,85 @@ public class RemoteActivity extends AppCompatActivity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         setContentView(R.layout.activity_remote);
-        MaterialToolbar toolbar = findViewById(R.id.toolbar);
+        toolbar = findViewById(R.id.toolbar);
         content = findViewById(R.id.content);
         note = findViewById(R.id.note);
-
-        String id = getIntent().getStringExtra(EXTRA_ID);
-        remote = App.get().store().get(id);
-        if (remote == null) { finish(); return; }
-
-        toolbar.setTitle(remote.name);
         toolbar.setNavigationOnClickListener(v -> finish());
 
-        if (remote.isAc() && "smartir".equals(remote.source)) {
-            note.setText("SmartIR • אם השליחה לא עובדת, השתמש בלמידה משלט פיזי");
+        preview = getIntent().getBooleanExtra(EXTRA_PREVIEW, false);
+
+        // swipe between sibling remotes (preview only)
+        gesture = new android.view.GestureDetector(this, new android.view.GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onFling(android.view.MotionEvent e1, android.view.MotionEvent e2, float vx, float vy) {
+                if (!preview || e1 == null || e2 == null) return false;
+                float dx = e2.getX() - e1.getX(), dy = e2.getY() - e1.getY();
+                if (Math.abs(dx) > Math.abs(dy) * 1.5f && Math.abs(dx) > 120 && Math.abs(vx) > 200) {
+                    if (dx < 0) goTo(session.index + 1); else goTo(session.index - 1);
+                    return true;
+                }
+                return false;
+            }
+        });
+
+        if (preview) {
+            session = App.get().preview;
+            if (session == null) { finish(); return; }
+            View bar = findViewById(R.id.previewBar);
+            bar.setVisibility(View.VISIBLE);
+            findViewById(R.id.btnSavePreview).setOnClickListener(v -> savePreview());
+            loadCurrent();
+        } else {
+            String id = getIntent().getStringExtra(EXTRA_ID);
+            remote = App.get().store().get(id);
+            if (remote == null) { finish(); return; }
+            showRemote(remote);
+        }
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        if (gesture != null) gesture.onTouchEvent(ev);
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private void goTo(int idx) {
+        if (session == null || idx < 0 || idx >= session.size() || idx == session.index) return;
+        session.index = idx;
+        loadCurrent();
+    }
+
+    private void loadCurrent() {
+        toolbar.setTitle("טוען...");
+        App.get().io().execute(() -> {
+            final SavedRemote r = session.current();
+            runOnUiThread(() -> showRemote(r));
+        });
+    }
+
+    private void savePreview() {
+        if (remote == null) return;
+        App.get().store().add(remote);
+        App.get().preview = null;
+        Toast.makeText(this, "נשמר: " + remote.name, Toast.LENGTH_SHORT).show();
+        android.content.Intent i = new android.content.Intent(this, MainActivity.class);
+        i.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(i);
+        finish();
+    }
+
+    private void showRemote(SavedRemote r) {
+        remote = r;
+        content.removeAllViews();
+        String title = r.name;
+        if (preview && session != null && session.size() > 1)
+            title = r.name + "  (" + (session.index + 1) + "/" + session.size() + ")";
+        toolbar.setTitle(title);
+
+        if (r.isAc() && "smartir".equals(r.source)) {
+            note.setText("SmartIR • אם לא עובד, נסה שלט אחר (החלקה) או למידה");
             buildAc();
         } else {
-            note.setText("local".equals(remote.source) ? "ZaZa" : "");
+            note.setText("");
             buildButtons();
         }
     }
@@ -75,7 +143,7 @@ public class RemoteActivity extends AppCompatActivity {
         Button tempPlus = v.findViewById(R.id.tempPlus);
         Button powerBtn = v.findViewById(R.id.powerBtn);
         Button sendBtn = v.findViewById(R.id.sendBtn);
-        sendBtn.setText(R.string.save);
+        sendBtn.setText("שלח מצב");
 
         App.get().io().execute(() -> {
             SmartIrSource.Entry e = new SmartIrSource.Entry();

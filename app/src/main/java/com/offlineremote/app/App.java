@@ -45,6 +45,9 @@ public final class App extends Application {
     public RemoteStore store() { return store; }
     public SmartIrSource smartIr() { return smartIr; }
     public LedLibrarySource led() { return led; }
+
+    /** Transient preview session for try-before-save (not persisted). */
+    public com.offlineremote.app.model.PreviewSession preview;
     public ExecutorService io() { return io; }
 
     /** Lazy: touching this loads liblocalirdb.so. */

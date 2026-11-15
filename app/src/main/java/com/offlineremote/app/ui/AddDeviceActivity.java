@@ -32,6 +32,8 @@ public class AddDeviceActivity extends AppCompatActivity {
     private RecyclerView list;
     private ProgressBar progress;
     private SimpleAdapter adapter;
+    private android.widget.EditText search;
+    private List<SimpleAdapter.Row> fullRows = new ArrayList<>();
     private final Deque<Runnable> stack = new ArrayDeque<>();
 
     @Override
@@ -44,8 +46,41 @@ public class AddDeviceActivity extends AppCompatActivity {
         list.setLayoutManager(new LinearLayoutManager(this));
         adapter = new SimpleAdapter();
         list.setAdapter(adapter);
+        search = findViewById(R.id.search);
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            public void afterTextChanged(android.text.Editable s) { applyFilter(s.toString()); }
+        });
         toolbar.setNavigationOnClickListener(v -> back());
         push(this::rootScreen);
+    }
+
+    private void present(String title, List<SimpleAdapter.Row> rows) {
+        toolbar.setTitle(title);
+        fullRows = (rows == null) ? new ArrayList<>() : rows;
+        search.setText("");
+        search.setVisibility(fullRows.size() > 6 ? View.VISIBLE : View.GONE);
+        adapter.submit(fullRows);
+    }
+
+    private void applyFilter(String q) {
+        if (q == null) q = "";
+        q = q.trim().toLowerCase();
+        if (q.isEmpty()) { adapter.submit(fullRows); return; }
+        List<SimpleAdapter.Row> out = new ArrayList<>();
+        for (SimpleAdapter.Row r : fullRows) {
+            String hay = ((r.title == null ? "" : r.title) + " " + (r.subtitle == null ? "" : r.subtitle)).toLowerCase();
+            if (hay.contains(q)) out.add(r);
+        }
+        adapter.submit(out);
+    }
+
+    private void openPreview(List<com.offlineremote.app.model.PreviewSession.Builder> builders, int index) {
+        App.get().preview = new com.offlineremote.app.model.PreviewSession(builders, index);
+        Intent i = new Intent(this, RemoteActivity.class);
+        i.putExtra(RemoteActivity.EXTRA_PREVIEW, true);
+        startActivity(i);
     }
 
     @Override public void onBackPressed() { back(); }
@@ -58,8 +93,7 @@ public class AddDeviceActivity extends AppCompatActivity {
     private void push(Runnable screen) { stack.push(screen); screen.run(); }
 
     private void setRows(String title, List<SimpleAdapter.Row> rows) {
-        toolbar.setTitle(title);
-        adapter.submit(rows);
+        present(title, rows);
     }
 
     private static String join(List<String> parts) {
@@ -79,7 +113,7 @@ public class AddDeviceActivity extends AppCompatActivity {
             final List<SimpleAdapter.Row> rows = work.run();
             runOnUiThread(() -> {
                 progress.setVisibility(View.GONE);
-                adapter.submit(rows == null ? new ArrayList<>() : rows);
+                present(title, rows);
             });
         });
     }
@@ -97,24 +131,41 @@ public class AddDeviceActivity extends AppCompatActivity {
         setRows(getString(R.string.pick_category), rows);
     }
 
+    private static String modelLabel(SmartIrSource.Entry e) {
+        return e.models.isEmpty() ? e.file : join(e.models);
+    }
+
     private void acManufacturers() {
         loadRows(getString(R.string.pick_manufacturer), () -> {
             List<SimpleAdapter.Row> rows = new ArrayList<>();
             for (String m : App.get().smartIr().manufacturers("ac")) {
                 final String man = m;
-                rows.add(new SimpleAdapter.Row(man, null, () -> push(() -> acModels(man))));
+                rows.add(new SimpleAdapter.Row(com.offlineremote.app.util.HebrewNames.display(m),
+                        null, () -> push(() -> acModels(man))));
             }
             return rows;
         });
     }
 
     private void acModels(String manufacturer) {
-        loadRows(getString(R.string.pick_model), () -> {
-            List<SimpleAdapter.Row> rows = new ArrayList<>();
-            for (SmartIrSource.Entry e : App.get().smartIr().models("ac", manufacturer)) {
+        loadRows(com.offlineremote.app.util.HebrewNames.only(manufacturer), () -> {
+            final List<SmartIrSource.Entry> entries = App.get().smartIr().models("ac", manufacturer);
+            final List<com.offlineremote.app.model.PreviewSession.Builder> builders = new ArrayList<>();
+            for (SmartIrSource.Entry e : entries) {
                 final SmartIrSource.Entry entry = e;
-                String sub = e.models.isEmpty() ? e.file : join(e.models);
-                rows.add(new SimpleAdapter.Row(entry.manufacturer, sub, () -> saveAc(entry)));
+                builders.add(() -> {
+                    SavedRemote r = new SavedRemote();
+                    r.source = "smartir"; r.category = "ac";
+                    r.name = com.offlineremote.app.util.HebrewNames.only(entry.manufacturer) + " · " + modelLabel(entry);
+                    r.acFile = entry.file;
+                    return r;
+                });
+            }
+            List<SimpleAdapter.Row> rows = new ArrayList<>();
+            for (int i = 0; i < entries.size(); i++) {
+                final int idx = i;
+                rows.add(new SimpleAdapter.Row(modelLabel(entries.get(i)), entries.get(i).file,
+                        () -> openPreview(builders, idx)));
             }
             return rows;
         });
@@ -125,19 +176,32 @@ public class AddDeviceActivity extends AppCompatActivity {
             List<SimpleAdapter.Row> rows = new ArrayList<>();
             for (String m : App.get().smartIr().manufacturers("tv")) {
                 final String man = m;
-                rows.add(new SimpleAdapter.Row(man, null, () -> push(() -> tvModels(man))));
+                rows.add(new SimpleAdapter.Row(com.offlineremote.app.util.HebrewNames.display(m),
+                        null, () -> push(() -> tvModels(man))));
             }
             return rows;
         });
     }
 
     private void tvModels(String manufacturer) {
-        loadRows(getString(R.string.pick_model), () -> {
-            List<SimpleAdapter.Row> rows = new ArrayList<>();
-            for (SmartIrSource.Entry e : App.get().smartIr().models("tv", manufacturer)) {
+        loadRows(com.offlineremote.app.util.HebrewNames.only(manufacturer), () -> {
+            final List<SmartIrSource.Entry> entries = App.get().smartIr().models("tv", manufacturer);
+            final List<com.offlineremote.app.model.PreviewSession.Builder> builders = new ArrayList<>();
+            for (SmartIrSource.Entry e : entries) {
                 final SmartIrSource.Entry entry = e;
-                String sub = e.models.isEmpty() ? e.file : join(e.models);
-                rows.add(new SimpleAdapter.Row(entry.manufacturer, sub, () -> saveTv(entry)));
+                builders.add(() -> {
+                    SavedRemote r = new SavedRemote();
+                    r.source = "smartir"; r.category = "tv";
+                    r.name = com.offlineremote.app.util.HebrewNames.only(entry.manufacturer) + " · " + modelLabel(entry);
+                    r.keys = App.get().smartIr().tvKeys(entry);
+                    return r;
+                });
+            }
+            List<SimpleAdapter.Row> rows = new ArrayList<>();
+            for (int i = 0; i < entries.size(); i++) {
+                final int idx = i;
+                rows.add(new SimpleAdapter.Row(modelLabel(entries.get(i)), entries.get(i).file,
+                        () -> openPreview(builders, idx)));
             }
             return rows;
         });
@@ -206,27 +270,25 @@ public class AddDeviceActivity extends AppCompatActivity {
 
     private void ledModels(String brand) {
         loadRows(brand, () -> {
-            List<SimpleAdapter.Row> rows = new ArrayList<>();
-            for (com.offlineremote.app.sources.LedLibrarySource.Dev d : App.get().led().models(brand)) {
+            final List<com.offlineremote.app.sources.LedLibrarySource.Dev> devs = App.get().led().models(brand);
+            final List<com.offlineremote.app.model.PreviewSession.Builder> builders = new ArrayList<>();
+            for (com.offlineremote.app.sources.LedLibrarySource.Dev d : devs) {
                 final com.offlineremote.app.sources.LedLibrarySource.Dev dev = d;
-                rows.add(new SimpleAdapter.Row(dev.model, dev.keys + " כפתורים",
-                        () -> saveLed(dev)));
+                builders.add(() -> {
+                    SavedRemote r = new SavedRemote();
+                    r.source = "led"; r.category = "led";
+                    r.name = dev.model;
+                    r.keys = App.get().led().keys(dev);
+                    return r;
+                });
+            }
+            List<SimpleAdapter.Row> rows = new ArrayList<>();
+            for (int i = 0; i < devs.size(); i++) {
+                final int idx = i;
+                rows.add(new SimpleAdapter.Row(devs.get(i).model, devs.get(i).keys + " כפתורים",
+                        () -> openPreview(builders, idx)));
             }
             return rows;
-        });
-    }
-
-    private void saveLed(com.offlineremote.app.sources.LedLibrarySource.Dev dev) {
-        progress.setVisibility(View.VISIBLE);
-        App.get().io().execute(() -> {
-            List<IrKey> keys = App.get().led().keys(dev);
-            SavedRemote r = new SavedRemote();
-            r.source = "led";
-            r.category = "led";
-            r.name = dev.model;
-            r.keys = keys;
-            App.get().store().add(r);
-            runOnUiThread(() -> { progress.setVisibility(View.GONE); open(r); });
         });
     }
 
