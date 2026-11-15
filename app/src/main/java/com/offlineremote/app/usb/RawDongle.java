@@ -196,6 +196,19 @@ public final class RawDongle {
         return null;
     }
 
+    /** Handshake + learn one signal (no replay). Returns inner payload or null. */
+    public byte[] learnOnce(int timeoutMs) {
+        sendRaw(modePacket('L')); drain(250);
+        sendRaw(modePacket('R')); drain(250);
+        return readLearned(timeoutMs);
+    }
+
+    /** Put dongle in send mode and transmit a captured payload. */
+    public void replayPayload(byte[] payload) {
+        sendRaw(modePacket('S')); drain(200);
+        transmitPayload(payload);
+    }
+
     /** End-to-end test: handshake, learn one signal, then replay it. */
     public List<String> learnAndReplay(int learnMs) {
         List<String> log = new ArrayList<>();

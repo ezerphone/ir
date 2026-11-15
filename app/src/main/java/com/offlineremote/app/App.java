@@ -21,6 +21,8 @@ public final class App extends Application {
     private RemoteStore store;
     private SmartIrSource smartIr;
     private LocalIrdbSource localDb; // created lazily (loads native lib)
+    private com.offlineremote.app.usb.RawDongle raw; // clean-room driver
+    public volatile byte[] lastLearnedPayload;       // last learned IR (raw driver)
     private final ExecutorService io = Executors.newSingleThreadExecutor();
 
     public static App get() { return instance; }
@@ -45,5 +47,11 @@ public final class App extends Application {
     public synchronized LocalIrdbSource localDb() {
         if (localDb == null) localDb = new LocalIrdbSource(this);
         return localDb;
+    }
+
+    /** Persistent clean-room raw dongle driver (survives across screens). */
+    public synchronized com.offlineremote.app.usb.RawDongle raw() {
+        if (raw == null) raw = new com.offlineremote.app.usb.RawDongle(this);
+        return raw;
     }
 }

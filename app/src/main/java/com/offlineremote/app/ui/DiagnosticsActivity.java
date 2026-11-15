@@ -40,7 +40,8 @@ public class DiagnosticsActivity extends AppCompatActivity {
         toolbar.setNavigationOnClickListener(v -> finish());
         out = findViewById(R.id.out);
         findViewById(R.id.btnRun).setOnClickListener(v -> run());
-        findViewById(R.id.btnLearn).setOnClickListener(v -> learnTest());
+        findViewById(R.id.btnLearn).setOnClickListener(v -> learnOnly());
+        findViewById(R.id.btnSend).setOnClickListener(v -> sendLast());
         findViewById(R.id.btnCopy).setOnClickListener(v -> {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             cm.setPrimaryClip(ClipData.newPlainText("diag", sb.toString()));
@@ -131,24 +132,41 @@ public class DiagnosticsActivity extends AppCompatActivity {
         }
     }
 
-    private void learnTest() {
+    private boolean ensureRawOpen() {
+        RawDongle raw = App.get().raw();
+        if (raw.isOpen()) return true;
+        try { App.get().dongle().disconnect(); } catch (Throwable ignore) {}
+        return raw.open();
+    }
+
+    private void learnOnly() {
         App.get().io().execute(() -> {
-            line("\n=== RAW RECORD (our own driver, no Tiqiaa libs) ===");
-            RawDongle raw = new RawDongle(this);
+            line("\n=== LEARN (raw) ===");
             try {
-                // Release the Tiqiaa stack's claim on the interface first.
-                try { App.get().dongle().disconnect(); } catch (Throwable ignore) {}
-                if (!raw.open()) {
-                    line("raw open failed (permission? dongle attached?)");
-                    return;
-                }
-                line("dongle opened (raw). LEARN then REPLAY test...");
-                List<String> rec = raw.learnAndReplay(15000);
-                for (String s : rec) line(s);
+                if (!ensureRawOpen()) { line("raw open failed (permission? dongle attached?)"); return; }
+                line("point the ORIGINAL remote at the dongle and press ONE button (20s)...");
+                byte[] p = App.get().raw().learnOnce(20000);
+                if (p == null) { line("no IR captured (null)"); return; }
+                App.get().lastLearnedPayload = p;
+                line("LEARNED ok: " + p.length + " bytes. Now aim the dongle at the device and press שדר.");
             } catch (Throwable t) {
-                line("RAW ERROR: " + t);
-            } finally {
-                raw.close();
+                line("LEARN ERROR: " + t);
+            }
+        });
+    }
+
+    private void sendLast() {
+        App.get().io().execute(() -> {
+            line("\n=== SEND last learned (raw) ===");
+            try {
+                byte[] p = App.get().lastLearnedPayload;
+                if (p == null) { line("nothing learned yet — press למד first"); return; }
+                if (!ensureRawOpen()) { line("raw open failed"); return; }
+                line("transmitting " + p.length + " bytes...");
+                App.get().raw().replayPayload(p);
+                line("sent. did the device react?");
+            } catch (Throwable t) {
+                line("SEND ERROR: " + t);
             }
         });
     }

@@ -21,13 +21,16 @@
         android:orientation="horizontal"
         android:padding="8dp">
         <Button android:id="@+id/btnRun" android:layout_width="0dp" android:layout_weight="1"
-            android:layout_height="wrap_content" android:text="הרץ אבחון" />
+            android:layout_height="wrap_content" android:text="אבחון" />
         <Button android:id="@+id/btnLearn" style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
-            android:layout_marginStart="6dp" android:text="למד+שדר" />
+            android:layout_marginStart="4dp" android:text="למד" />
+        <Button android:id="@+id/btnSend" style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:layout_marginStart="4dp" android:text="שדר" />
         <Button android:id="@+id/btnCopy" style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginStart="6dp" android:text="העתק" />
+            android:layout_marginStart="4dp" android:text="העתק" />
     </LinearLayout>
 
     <ScrollView
