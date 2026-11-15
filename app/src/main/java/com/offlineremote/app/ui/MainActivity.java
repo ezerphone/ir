@@ -55,7 +55,7 @@ public class MainActivity extends AppCompatActivity {
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
                 tryConnect();
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
-                App.get().dongle().disconnect();
+                App.get().raw().close();
                 refreshStatus();
             }
         }
@@ -118,25 +118,36 @@ public class MainActivity extends AppCompatActivity {
         empty.setVisibility(all.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
+    private UsbDevice findDongle() {
+        UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
+        if (um == null) return null;
+        java.util.HashMap<String, UsbDevice> list = um.getDeviceList();
+        if (list != null) for (UsbDevice d : list.values()) if (DongleManager.matches(d)) return d;
+        return null;
+    }
+
     private void tryConnect() {
-        DongleManager d = App.get().dongle();
-        UsbDevice dev = d.findDevice();
-        if (dev == null) { refreshStatus(); return; }
-        if (!d.hasPermission(dev)) {
+        UsbManager um = (UsbManager) getSystemService(Context.USB_SERVICE);
+        UsbDevice dev = findDongle();
+        if (dev == null || um == null) { refreshStatus(); return; }
+        if (!um.hasPermission(dev)) {
             statusText.setText(R.string.dongle_no_permission);
-            d.requestPermission(dev);
+            int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT;
+            if (android.os.Build.VERSION.SDK_INT >= 23) flags |= android.app.PendingIntent.FLAG_IMMUTABLE;
+            android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(this, 0,
+                    new Intent(DongleManager.ACTION_USB_PERMISSION).setPackage(getPackageName()), flags);
+            um.requestPermission(dev, pi);
             return;
         }
         App.get().io().execute(() -> {
-            d.connect(dev);
+            App.get().raw().open();
             runOnUiThread(this::refreshStatus);
         });
     }
 
     private void refreshStatus() {
-        DongleManager d = App.get().dongle();
-        boolean connected = d.isConnected();
-        UsbDevice dev = d.findDevice();
+        boolean connected = App.get().raw().isOpen();
+        UsbDevice dev = findDongle();
         if (connected) {
             statusDot.setBackgroundColor(ContextCompat.getColor(this, R.color.primary));
             statusText.setText(R.string.dongle_connected);

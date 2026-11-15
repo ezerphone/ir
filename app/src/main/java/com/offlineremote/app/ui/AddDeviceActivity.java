@@ -92,8 +92,6 @@ public class AddDeviceActivity extends AppCompatActivity {
                 getString(R.string.source_smartir), () -> push(this::acManufacturers)));
         rows.add(new SimpleAdapter.Row(getString(R.string.category_tv),
                 getString(R.string.source_smartir), () -> push(this::tvManufacturers)));
-        rows.add(new SimpleAdapter.Row(getString(R.string.source_local),
-                "מאגר מוטמע (מזגנים, טלוויזיות, ממירים...)", () -> push(this::localTypes)));
         setRows(getString(R.string.pick_category), rows);
     }
 

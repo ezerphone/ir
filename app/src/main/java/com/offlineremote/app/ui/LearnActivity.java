@@ -65,10 +65,6 @@ public class LearnActivity extends AppCompatActivity {
     }
 
     private void learnOne() {
-        if (!App.get().dongle().isConnected()) {
-            Toast.makeText(this, R.string.dongle_missing, Toast.LENGTH_SHORT).show();
-            return;
-        }
         final String label = keyLabel.getText().toString().trim();
         if (TextUtils.isEmpty(label)) {
             Toast.makeText(this, "שם כפתור?", Toast.LENGTH_SHORT).show();
@@ -76,13 +72,19 @@ public class LearnActivity extends AppCompatActivity {
         }
         Toast.makeText(this, R.string.learn_hint, Toast.LENGTH_SHORT).show();
         App.get().io().execute(() -> {
-            IControlIRData captured = App.get().dongle().learn(8000);
+            com.offlineremote.app.usb.RawDongle raw = App.get().raw();
+            if (!raw.isOpen()) raw.open();
+            if (!raw.isOpen()) {
+                runOnUiThread(() -> Toast.makeText(this, R.string.dongle_missing, Toast.LENGTH_SHORT).show());
+                return;
+            }
+            byte[] frame = raw.learn(12000);
             runOnUiThread(() -> {
-                if (captured == null || captured.a() == null) {
+                if (frame == null) {
                     Toast.makeText(this, "לא נקלט אות", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                Code c = Code.nativeCode(captured.b(), captured.a());
+                Code c = Code.nativeCode(38000, frame); // native learned frame
                 learned.add(new IrKey(label, 0, c));
                 keyLabel.setText("");
                 refreshKeys();

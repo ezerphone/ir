@@ -155,16 +155,15 @@ public class RemoteActivity extends AppCompatActivity {
     // ---------------- send ----------------
 
     private void sendCodeResult(Code c) {
+        com.offlineremote.app.usb.RawDongle raw = App.get().raw();
+        if (!raw.isOpen()) raw.open();
         boolean ok = false;
-        if (c != null && App.get().dongle().isConnected()) {
-            if (c.kind == Code.Kind.NATIVE) {
-                ok = App.get().tx().sendNative(c.freq, c.nativeBytes);
-            } else {
-                ok = App.get().tx().sendSignal(new IrSignal(c.freq, c.micros));
-            }
+        if (c != null && raw.isOpen()) {
+            byte[] nativeFrame = (c.kind == Code.Kind.NATIVE) ? c.nativeBytes : null;
+            ok = raw.transmit(c.freq, nativeFrame, c.micros);
         }
         final boolean result = ok;
-        final boolean connected = App.get().dongle().isConnected();
+        final boolean connected = raw.isOpen();
         runOnUiThread(() -> {
             String msg = !connected ? getString(R.string.dongle_missing)
                     : (result ? getString(R.string.sent) : getString(R.string.send_failed));

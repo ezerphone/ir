@@ -180,15 +180,65 @@ public final class RawDongle {
         return null;
     }
 
-    /** Transmit a learned payload. */
+    /** Transmit a learned payload (captured frame). */
     public boolean send(byte[] learnedPayload) {
         byte[] frame = buildSendFrame(learnedPayload, 0);
         lastSendFrame = frame;
         if (frame == null) return false;
         writeMode('S'); readFrame(400);     // ack
         writePayload(frame);                // all chunks OUT, no concurrent reads
-        byte[] resp = readFrame(1500);      // transmit ack
+        readFrame(1500);                    // transmit ack
         return true;
+    }
+
+    /**
+     * Encode raw microsecond on/off timings into Tiqiaa duration bytes.
+     * Each byte: low7 = round(us/16), bit7 = mark(1)/space(0).
+     * Durations >= 2032us become a run of 0xff (mark) / 0x7f (space) + remainder byte.
+     * (Derived from the _t encoder in libtiqiaadev.)
+     */
+    public static byte[] encodeTimings(int[] micros) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        for (int i = 0; i < micros.length; i++) {
+            boolean mark = (i % 2) == 0;   // first timing is a mark
+            int v = micros[i];
+            if (v >= 2032) {
+                int runs = v / 2032;
+                int cnt = Math.max(runs, 1);
+                for (int k = 0; k < cnt; k++) out.write(mark ? 0xff : 0x7f);
+                v -= runs * 2032;
+            }
+            if (v >= 8) {
+                int b = (v + 8) >> 4;
+                if (b > 0x7f) b = 0x7f;
+                if (mark) b |= 0x80;
+                out.write(b);
+            }
+        }
+        return out.toByteArray();
+    }
+
+    /** Transmit a raw signal (from an open DB like SmartIR): freq + microsecond timings. */
+    public boolean sendRawSignal(int freqHz, int[] micros) {
+        if (micros == null || micros.length < 2) return false;
+        byte[] dur = encodeTimings(micros);
+        int fi = freqIndex(freqHz);
+        byte[] inner = new byte[5 + dur.length + 2];
+        inner[0] = 'S'; inner[1] = 'T'; inner[2] = (byte) nextSeq(); inner[3] = 'D';
+        inner[4] = (byte) fi;
+        System.arraycopy(dur, 0, inner, 5, dur.length);
+        inner[5 + dur.length] = 'E'; inner[6 + dur.length] = 'N';
+        lastSendFrame = inner;
+        writeMode('S'); readFrame(400);
+        writePayload(inner);
+        readFrame(1500);
+        return true;
+    }
+
+    /** Unified send: learned native frame if present, else a raw signal. */
+    public boolean transmit(int freqHz, byte[] nativeFrame, int[] micros) {
+        if (nativeFrame != null && nativeFrame.length >= 6) return send(nativeFrame);
+        return sendRawSignal(freqHz, micros);
     }
 
     public byte[] learnVerbose(int timeoutMs, List<String> log) {
