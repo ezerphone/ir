@@ -34,6 +34,9 @@ adb shell am start -S -W -n $MAIN --es demo rot >/dev/null; sleep 2
 shot 11_home_rotated ""
 shot 12_ac_rotated match_ac
 shot 16_scan_rotated scan_audio
+# record the system display rotation while rotated (expect ROTATION_180 / rotation=2)
+{ adb shell dumpsys window displays | grep -iE "mRotation|mCurrentRotation|rotation=" | head -5;
+  adb shell dumpsys input | grep -i "SurfaceOrientation" | head -2; } > "$OUT/rotation.txt" 2>&1
 adb shell am start -S -W -n $MAIN --es demo unrot >/dev/null
 adb logcat -d -s AndroidRuntime:E > "$OUT/crash_log.txt" || true
 ls -la "$OUT"
