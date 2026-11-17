@@ -10,9 +10,9 @@ adb shell settings put system screen_off_timeout 1800000
 adb shell input keyevent KEYCODE_WAKEUP
 adb shell wm dismiss-keyguard || true
 
-shot() {   # name, demo value (fresh process every time)
+shot() {   # name, demo value (fresh process every time), optional wait seconds
   adb shell am start -S -W -n $MAIN --es demo "${2:-seed}" >/dev/null
-  sleep 7
+  sleep ${3:-7}
   adb exec-out screencap -p > "$OUT/$1.png"
 }
 
@@ -26,10 +26,14 @@ shot 07_match_led match_led
 shot 08_learn learn
 shot 09_learned learned
 shot 10_match_tv match_tv
+shot 13_scan_audio scan_audio
+shot 14_scan_ac scan_ac 20
+shot 15_soundbar_brands soundbars
 # rotated 180
 adb shell am start -S -W -n $MAIN --es demo rot >/dev/null; sleep 2
 shot 11_home_rotated ""
 shot 12_ac_rotated match_ac
+shot 16_scan_rotated scan_audio
 adb shell am start -S -W -n $MAIN --es demo unrot >/dev/null
 adb logcat -d -s AndroidRuntime:E > "$OUT/crash_log.txt" || true
 ls -la "$OUT"

@@ -63,6 +63,7 @@ public class AddDeviceActivity extends BaseActivity {
         push(this::rootScreen);
         String demo = getIntent().getStringExtra(DemoMode.EXTRA);
         if ("more".equals(demo)) push(this::moreCategories);
+        else if ("soundbars".equals(demo)) { FlipperLibrary.Cat sb = cat("soundbar"); if (sb != null) push(() -> libBrands(sb)); }
         else if ("brands".equals(demo)) push(this::acBrands);
         else if ("match_ac".equals(demo)) App.get().io().execute(() -> {
             List<PreviewSession.Builder> bl = acBuilders("AUX");
@@ -170,9 +171,17 @@ public class AddDeviceActivity extends BaseActivity {
         return he.equals(brand.trim()) ? null : brand.trim();
     }
 
+    private SimpleAdapter.Row scanRow(String kind) {
+        return new SimpleAdapter.Row("חיפוש אוטומטי",
+                "לא יודע את היצרן או אין שלט? ננסה את הקודים אחד-אחד",
+                () -> startActivity(new Intent(this, ScanActivity.class).putExtra(ScanActivity.EXTRA_KIND, kind)))
+                .icon(R.drawable.ic_search);
+    }
+
     private void acBrands() {
         loadRows("בחר יצרן", () -> {
             List<SimpleAdapter.Row> rows = new ArrayList<>();
+            rows.add(scanRow("ac"));
             for (String m : App.get().smartIr().manufacturers("ac")) {
                 final String man = m;
                 rows.add(new SimpleAdapter.Row(HebrewNames.only(m), sub(m), () -> push(() -> acModels(man))));
@@ -236,6 +245,7 @@ public class AddDeviceActivity extends BaseActivity {
     private void libBrands(FlipperLibrary.Cat cat) {
         loadRows(cat.he, () -> {
             List<SimpleAdapter.Row> rows = new ArrayList<>();
+            if (cat.slug.equals("speaker") || cat.slug.equals("soundbar")) rows.add(scanRow("audio"));
             for (String b : App.get().lib().brands(cat.slug)) {
                 final String brand = b;
                 rows.add(new SimpleAdapter.Row(HebrewNames.only(brand), sub(brand), () -> push(() -> libModels(cat, brand))));

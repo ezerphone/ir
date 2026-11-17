@@ -79,6 +79,9 @@ public final class FlipperLibrary {
         return out;
     }
 
+    /** Every device in a category. */
+    public List<Dev> all(String slug) { return new ArrayList<>(devices(slug)); }
+
     public List<String> brands(String slug) {
         Set<String> s = new LinkedHashSet<>();
         for (Dev d : devices(slug)) s.add(d.brand);

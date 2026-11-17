@@ -2,7 +2,9 @@ package com.offlineremote.app.ui;
 
 import android.app.Dialog;
 import android.content.Context;
+import android.content.pm.ActivityInfo;
 import android.os.Bundle;
+import android.view.Surface;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -13,18 +15,30 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.offlineremote.app.R;
 
 /**
- * Common base: right-to-left layout, the remembered 180° screen rotation (so the phone
- * can be held "upside down" with the dongle at the bottom pointing forward), and an
- * in-app toast that rotates with the screen.
+ * Common base: right-to-left layout and the remembered 180° rotation (so the phone can be
+ * held "upside down" with the dongle at the bottom pointing forward). The whole display is
+ * flipped (status bar, navigation, dialogs). Phones that refuse upside-down mode fall back
+ * to flipping just the app's content.
  */
 public abstract class BaseActivity extends AppCompatActivity {
 
-    private static final String PREFS = "ui", KEY_ROT = "rot180";
+    private static final String PREFS = "ui", KEY_ROT = "rot180", KEY_FALLBACK = "rotFallback";
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().getDecorView().setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        requestOrientation();
+    }
+
+    private static boolean fallback(Context c) {
+        return c.getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_FALLBACK, false);
+    }
+
+    private void requestOrientation() {
+        boolean full = isRotated(this) && !fallback(this);
+        setRequestedOrientation(full ? ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
     }
 
     @Override
@@ -43,21 +57,36 @@ public abstract class BaseActivity extends AppCompatActivity {
         applyRotation(true);
     }
 
+    @SuppressWarnings("deprecation")
     protected void applyRotation(boolean animate) {
+        requestOrientation();
         View c = findViewById(android.R.id.content);
         if (c == null) return;
-        float target = isRotated(this) ? 180f : 0f;
-        if (animate) c.animate().rotation(target).setDuration(260).start();
+        boolean rotated = isRotated(this);
+        // app-only rotation is used only on phones that refuse the upside-down display
+        float target = (rotated && fallback(this)) ? 180f : 0f;
+        if (animate && fallback(this)) c.animate().rotation(target).setDuration(260).start();
         else c.setRotation(target);
+        if (rotated && !fallback(this)) {
+            c.postDelayed(() -> {
+                if (isFinishing() || !isRotated(this) || fallback(this)) return;
+                int r = getWindowManager().getDefaultDisplay().getRotation();
+                if (r != Surface.ROTATION_180) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_FALLBACK, true).apply();
+                    applyRotation(true);
+                    toast("הטלפון לא מאפשר סיבוב מלא — מסובבים את האפליקציה");
+                }
+            }, 1200);
+        }
     }
 
-    /** Call after dialog.show() so the dialog matches the screen rotation. */
+    /** Call after dialog.show(): with app-only rotation the dialog is flipped to match. */
     public void rotateDialog(Dialog d) {
         if (d == null || d.getWindow() == null) return;
-        View v = d.getWindow().findViewById(android.R.id.content);
-        if (v != null) v.setRotation(isRotated(this) ? 180f : 0f);
         View decor = d.getWindow().getDecorView();
         decor.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        View v = d.getWindow().findViewById(android.R.id.content);
+        if (v != null) v.setRotation(isRotated(this) && fallback(this) ? 180f : 0f);
     }
 
     /** Short message shown inside the (possibly rotated) screen. */

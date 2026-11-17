@@ -31,6 +31,7 @@
         <activity android:name=".ui.RemoteActivity" />
         <activity android:name=".ui.LearnActivity" />
         <activity android:name=".ui.ErrorLogActivity" />
+        <activity android:name=".ui.ScanActivity" />
 
     </application>
 </manifest>

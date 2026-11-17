@@ -131,7 +131,7 @@ public class RemoteActivity extends BaseActivity {
     private void saveWorked() {
         if (remote == null) return;
         remote.name = Icons.noun(remote.category, session.categoryHe);
-        remote.brand = session.brand;
+        if (remote.brand == null || remote.brand.isEmpty()) remote.brand = session.brand;
         App.get().store().add(remote);
         App.get().preview = null;
         Intent i = new Intent(this, MainActivity.class);
@@ -145,7 +145,8 @@ public class RemoteActivity extends BaseActivity {
         remote = r;
         content.removeAllViews();
         if (preview) {
-            bar.title("התאמה · " + session.brand + " " + session.categoryHe
+            String brand = (r.brand != null && !r.brand.isEmpty()) ? r.brand : session.brand;
+            bar.title("התאמה · " + brand + " " + session.categoryHe
                     + " (" + (session.index + 1) + "/" + session.size() + ")");
             updateMatchBar();
         } else {
