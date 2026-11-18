@@ -8,6 +8,9 @@ import java.util.List;
 /**
  * Expands a compact IR code (protocol + address + command, as stored in the bundled
  * library) into carrier frequency + microsecond on/off timings, which the dongle sends.
+ * The output is a whole short button press, as a real remote sends it: NEC frame + repeat
+ * code, Sony x3, RC5 x2, Samsung x2. ZaZa's codes are recordings of real remotes and carry
+ * these repeats; a single bare frame is much easier to miss at a distance.
  * Supported: NEC, NECext, NEC42, Sony SIRC/SIRC15/SIRC20, Samsung32, RC5, RC5X.
  * Unsupported protocols return null (those buttons were dropped at build time, or come
  * as raw timings instead).
@@ -24,18 +27,52 @@ public final class IrGen {
         if (proto == null || addrHex == null || cmdHex == null) return null;
         int a0 = hi(addrHex), a1 = lo(addrHex);
         int c0 = hi(cmdHex),  c1 = lo(cmdHex);
+        Code one;
         switch (proto) {
-            case "NEC":       return nec(38000, new int[]{a0, inv(a0), c0, inv(c0)});
-            case "NECext":    return nec(38000, new int[]{a0, a1, c0, c1});
-            case "Samsung32": return samsung(a0, c0);
-            case "NEC42":     return nec42(a0, a1, c0);
-            case "SIRC":      return sirc(c0, a0, 5);
-            case "SIRC15":    return sirc(c0, a0, 8);
-            case "SIRC20":    return sirc20(c0, a0, a1);
-            case "RC5":       return rc5(a0, c0, true);
-            case "RC5X":      return rc5(a0, c0, false);
+            case "NEC":       one = nec(38000, new int[]{a0, inv(a0), c0, inv(c0)}); return withNecRepeat(one);
+            case "NECext":    one = nec(38000, new int[]{a0, a1, c0, c1}); return withNecRepeat(one);
+            case "NEC42":     one = nec42(a0, a1, c0); return withNecRepeat(one);
+            case "Samsung32": one = samsung(a0, c0); return repeat(one, 108000, 2);
+            case "SIRC":      one = sirc(c0, a0, 5); return repeat(one, 45000, 3);
+            case "SIRC15":    one = sirc(c0, a0, 8); return repeat(one, 45000, 3);
+            case "SIRC20":    one = sirc20(c0, a0, a1); return repeat(one, 45000, 3);
+            case "RC5":       one = rc5(a0, c0, true); return repeat(one, 113778, 2);
+            case "RC5X":      one = rc5(a0, c0, false); return repeat(one, 113778, 2);
             default:          return null;
         }
+    }
+
+    // ---- turning a single frame into a realistic button press ----
+
+    private static int sum(int[] a) { int s = 0; for (int v : a) s += v; return s; }
+
+    /** Append a space to a mark/space list (merging with a trailing space). */
+    private static void addSpace(List<Integer> o, int us) {
+        if (us <= 0) return;
+        if (o.size() % 2 == 0 && !o.isEmpty()) o.set(o.size() - 1, o.get(o.size() - 1) + us);
+        else o.add(us);
+    }
+
+    /** The frame sent `count` times, one every `periodUs` (start to start). */
+    private static Code repeat(Code one, int periodUs, int count) {
+        if (one == null) return null;
+        int[] f = one.micros;
+        List<Integer> o = new ArrayList<>();
+        for (int n = 0; n < count; n++) {
+            if (n > 0) addSpace(o, Math.max(periodUs - sum(f), 10000));
+            for (int v : f) o.add(v);
+        }
+        return Code.signal(one.freq, toArr(o));
+    }
+
+    /** NEC frame followed by one repeat code, 108 ms after the frame started. */
+    private static Code withNecRepeat(Code one) {
+        if (one == null) return null;
+        List<Integer> o = new ArrayList<>();
+        for (int v : one.micros) o.add(v);
+        addSpace(o, Math.max(108000 - sum(one.micros), 10000));
+        o.add(9000); o.add(2250); o.add(560);
+        return Code.signal(one.freq, toArr(o));
     }
 
     private static int inv(int b) { return (~b) & 0xff; }
