@@ -76,13 +76,14 @@ public class ScanActivity extends BaseActivity {
 
         buildContent();
         App.get().io().execute(() -> {
-            final List<ScanPool.Cand> p = "ac".equals(kind) ? ScanPool.ac() : ScanPool.audio();
+            final List<ScanPool.Cand> p = "ac".equals(kind) ? ScanPool.ac()
+                    : "led".equals(kind) ? ScanPool.led() : ScanPool.audio();
             runOnUiThread(() -> { pool = p; index = 0; showContentReady(); showIndex(); });
         });
     }
 
-    private String noun() { return "ac".equals(kind) ? "מזגן" : "רמקול / סאונד בר"; }
-    private String target() { return "ac".equals(kind) ? "המזגן" : "הרמקול / הסאונד בר"; }
+    private String noun() { return "ac".equals(kind) ? "מזגן" : "led".equals(kind) ? "מנורה" : "רמקול / סאונד בר"; }
+    private String target() { return "ac".equals(kind) ? "המזגן" : "led".equals(kind) ? "המנורה" : "הרמקול / הסאונד בר"; }
 
     // ---------------- layout ----------------
 
@@ -107,7 +108,9 @@ public class ScanActivity extends BaseActivity {
         content.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
 
-        TextView hint = Ui.text(this, "לחץ על ההפעלה. המכשיר נדלק, כבה או צפצף? לחץ עבד!", 13,
+        TextView hint = Ui.text(this, "led".equals(kind)
+                ? "כבה את המנורה, ואז לחץ על ההפעלה. המנורה נדלקה? לחץ עבד!"
+                : "לחץ על ההפעלה. המכשיר נדלק, כבה או צפצף? לחץ עבד!", 13,
                 Ui.color(this, R.color.sub), false);
         hint.setGravity(Gravity.CENTER);
         col.addView(hint, wide(0));
@@ -230,7 +233,7 @@ public class ScanActivity extends BaseActivity {
         PreviewSession s = new PreviewSession(c.builders, 0);
         s.brand = c.brands.isEmpty() ? "" : c.brands.get(0);
         s.category = c.slug;
-        s.categoryHe = Icons.noun(c.slug, "רמקול");
+        s.categoryHe = Icons.noun(c.slug, "מכשיר");
         s.target = Icons.target(c.slug);
         App.get().preview = s;
         startActivity(new Intent(this, RemoteActivity.class).putExtra(RemoteActivity.EXTRA_PREVIEW, true));

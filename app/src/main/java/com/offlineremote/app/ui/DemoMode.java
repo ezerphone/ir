@@ -33,6 +33,7 @@ final class DemoMode {
             case "learn": a.startActivity(new Intent(a, LearnActivity.class)); return true;
             case "add": a.startActivity(new Intent(a, AddDeviceActivity.class)); return true;
             case "scan_ac": a.startActivity(new Intent(a, ScanActivity.class).putExtra(ScanActivity.EXTRA_KIND, "ac")); return true;
+            case "scan_led": a.startActivity(new Intent(a, ScanActivity.class).putExtra(ScanActivity.EXTRA_KIND, "led")); return true;
             case "scan_audio": a.startActivity(new Intent(a, ScanActivity.class).putExtra(ScanActivity.EXTRA_KIND, "audio")); return true;
             case "soundbars": a.startActivity(new Intent(a, AddDeviceActivity.class).putExtra(EXTRA, demo)); return true;
             case "more": case "brands": case "match_ac": case "match_led": case "match_tv":

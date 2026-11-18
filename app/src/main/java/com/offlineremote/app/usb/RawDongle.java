@@ -210,8 +210,11 @@ public final class RawDongle {
     }
 
     /** Transmit a learned payload (captured frame). */
-    public boolean send(byte[] learnedPayload) {
-        byte[] frame = buildSendFrame(learnedPayload, 0);
+    public boolean send(byte[] learnedPayload) { return send(learnedPayload, 38000); }
+
+    /** Transmit a learned frame at the given carrier (detected when the code was learned). */
+    public boolean send(byte[] learnedPayload, int freqHz) {
+        byte[] frame = buildSendFrame(learnedPayload, freqIndex(freqHz));
         lastSendFrame = frame;
         if (frame == null) return false;
         writeMode('S'); readFrame(400);     // ack
@@ -266,7 +269,7 @@ public final class RawDongle {
 
     /** Unified send: learned native frame if present, else a raw signal. */
     public boolean transmit(int freqHz, byte[] nativeFrame, int[] micros) {
-        if (nativeFrame != null && nativeFrame.length >= 6) return send(nativeFrame);
+        if (nativeFrame != null && nativeFrame.length >= 6) return send(nativeFrame, freqHz);
         return sendRawSignal(freqHz, micros);
     }
 

@@ -106,7 +106,9 @@ public final class FlipperLibrary {
                 JSONObject b = btns.getJSONObject(i);
                 String name = b.getString("n");
                 Code c;
-                if (b.has("p")) {
+                if (b.has("q")) {
+                    c = IrGen.irdb(b.getString("q"), b.getInt("d"), b.optInt("s", -1), b.getInt("f"));
+                } else if (b.has("p")) {
                     c = IrGen.toCode(b.getString("p"), b.getString("a"), b.getString("c"));
                 } else {
                     JSONArray m = b.getJSONArray("m");

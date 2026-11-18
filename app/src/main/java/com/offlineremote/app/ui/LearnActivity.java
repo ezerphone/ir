@@ -365,7 +365,8 @@ public class LearnActivity extends BaseActivity {
                             : "✗ הדונגל לא מחובר", R.color.failText);
                     return;
                 }
-                IrKey k = new IrKey(label, 0, Code.nativeCode(38000, f));
+                // carrier guessed from the timing pattern (Sony 40k, Philips 36k, NEC 38k...)
+                IrKey k = new IrKey(label, 0, Code.nativeCode(com.offlineremote.app.ir.IrGen.detectCarrier(f), f));
                 k.role = t.role;
                 k.color = color;
                 for (int i = 0; i < learned.size(); i++) {

@@ -29,6 +29,7 @@ shot 10_match_tv match_tv
 shot 13_scan_audio scan_audio
 shot 14_scan_ac scan_ac 20
 shot 15_soundbar_brands soundbars
+shot 17_scan_led scan_led 12
 # rotated 180
 adb shell am start -S -W -n $MAIN --es demo rot >/dev/null; sleep 2
 shot 11_home_rotated ""

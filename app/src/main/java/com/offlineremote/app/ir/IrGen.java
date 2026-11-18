@@ -42,6 +42,161 @@ public final class IrGen {
         }
     }
 
+    // ---- irdb codes: protocol name + device / subdevice / function (IRP definitions) ----
+
+    /** Expand an irdb row; s < 0 means "default subdevice" for the protocol. */
+    public static Code irdb(String q, int d, int s, int f) {
+        if (q == null) return null;
+        switch (q) {
+            case "NEC1": case "NEC2":
+                return withNecRepeat(nec(38000, new int[]{d & 255, (s < 0 ? 255 - d : s) & 255, f & 255, inv(f)}));
+            case "NEC1F16":
+                return withNecRepeat(nec(38000, new int[]{d & 255, (s < 0 ? 255 - d : s) & 255, f & 255, (f >> 8) & 255}));
+            case "NECX":
+                return repeat(necx(d & 255, (s < 0 ? d : s) & 255, f & 255), 108000, 2);
+            case "PIONEER":
+                return repeat(nec(40000, new int[]{d & 255, (s < 0 ? 255 - d : s) & 255, f & 255, inv(f)}), 108000, 2);
+            case "RC5":
+                return repeat(rc5(d, f, false), 113778, 2);
+            case "RC6":
+                return repeat(rc6(0, new int[][]{{d & 255, 8}, {f & 255, 8}}), 107000, 2);
+            case "MCE":
+                return repeat(rc6(6, new int[][]{{128, 8}, {(s < 0 ? 15 : s) & 255, 8}, {0, 1}, {d & 127, 7}, {f & 255, 8}}), 107000, 2);
+            case "JVC": return jvc(d & 255, f & 255);
+            case "Sony12": return repeat(sirc(f, d & 31, 5), 45000, 3);
+            case "Sony15": return repeat(sirc(f, d & 255, 8), 45000, 3);
+            case "Sony20": return repeat(sirc((f & 127), (d & 31) | (((s < 0 ? 0 : s) & 255) << 5), 13), 45000, 3);
+            case "MITSUBISHI": return mitsubishi(d & 255, f & 255);
+            case "AIWA": return aiwa(d & 255, (s < 0 ? 0 : s) & 31, f & 255);
+            case "PANASONIC": return repeat(panasonic(d & 255, (s < 0 ? 0 : s) & 255, f & 255), 108000, 2);
+            case "DENON": return sharpDenon(d & 31, f & 255, new int[]{0, 0}, new int[]{1, 1});
+            case "SHARP": return sharpDenon(d & 31, f & 255, new int[]{1, 0}, new int[]{0, 1});
+            default: return null;
+        }
+    }
+
+    /** Generic pulse-distance bits, LSB first. */
+    private static void pdBits(List<Integer> o, int value, int n, int mark, int s0, int s1) {
+        for (int i = 0; i < n; i++) { o.add(mark); o.add(((value >> i) & 1) == 1 ? s1 : s0); }
+    }
+
+    private static Code necx(int d, int s, int f) {
+        List<Integer> o = new ArrayList<>();
+        o.add(4512); o.add(4512);
+        for (int b : new int[]{d, s, f, inv(f)}) pwmByte(o, b);
+        o.add(560);
+        return Code.signal(38000, toArr(o));
+    }
+
+    private static Code jvc(int d, int f) {
+        List<Integer> o = new ArrayList<>();
+        o.add(8400); o.add(4200);
+        pdBits(o, d, 8, 525, 525, 1575); pdBits(o, f, 8, 525, 525, 1575);
+        o.add(525); o.add(23625);
+        pdBits(o, d, 8, 525, 525, 1575); pdBits(o, f, 8, 525, 525, 1575);
+        o.add(525);
+        return Code.signal(38000, toArr(o));
+    }
+
+    private static Code mitsubishi(int d, int f) {
+        List<Integer> o = new ArrayList<>();
+        for (int n = 0; n < 2; n++) {
+            if (n > 0) o.add(24000);
+            pdBits(o, d, 8, 300, 900, 2100); pdBits(o, f, 8, 300, 900, 2100);
+            o.add(300);
+        }
+        return Code.signal(33000, toArr(o));
+    }
+
+    private static Code aiwa(int d, int s, int f) {
+        List<Integer> o = new ArrayList<>();
+        o.add(8800); o.add(4400);
+        pdBits(o, d, 8, 550, 550, 1650); pdBits(o, s, 5, 550, 550, 1650);
+        pdBits(o, (~d) & 255, 8, 550, 550, 1650); pdBits(o, (~s) & 31, 5, 550, 550, 1650);
+        pdBits(o, f, 8, 550, 550, 1650); pdBits(o, inv(f), 8, 550, 550, 1650);
+        o.add(550); o.add(23100);
+        o.add(8800); o.add(4400); o.add(550);
+        return Code.signal(38000, toArr(o));
+    }
+
+    private static Code panasonic(int d, int s, int f) {
+        List<Integer> o = new ArrayList<>();
+        o.add(3456); o.add(1728);
+        for (int b : new int[]{0x02, 0x20, d, s, f, d ^ s ^ f}) pdBits(o, b, 8, 432, 432, 1296);
+        o.add(432);
+        return Code.signal(37000, toArr(o));
+    }
+
+    private static Code sharpDenon(int d, int f, int[] extA, int[] extB) {
+        List<Integer> o = new ArrayList<>();
+        pdBits(o, d, 5, 264, 792, 1848); pdBits(o, f, 8, 264, 792, 1848);
+        for (int b : extA) { o.add(264); o.add(b == 1 ? 1848 : 792); }
+        o.add(264); o.add(43560);
+        pdBits(o, d, 5, 264, 792, 1848); pdBits(o, inv(f), 8, 264, 792, 1848);
+        for (int b : extB) { o.add(264); o.add(b == 1 ? 1848 : 792); }
+        o.add(264);
+        return Code.signal(38000, toArr(o));
+    }
+
+    /** RC6 (Manchester, 444 us units, MSB first): leader, start 1, mode, trailer 0, payload. */
+    private static Code rc6(int mode, int[][] payload) {
+        List<Integer> lv = new ArrayList<>();        // 1 = mark, 0 = space, one entry per 444 us
+        for (int i = 0; i < 6; i++) lv.add(1);
+        for (int i = 0; i < 2; i++) lv.add(0);
+        rc6Bit(lv, 1, 1);
+        for (int i = 2; i >= 0; i--) rc6Bit(lv, (mode >> i) & 1, 1);
+        rc6Bit(lv, 0, 2);                            // trailer / toggle, double width
+        for (int[] field : payload)
+            for (int i = field[1] - 1; i >= 0; i--) rc6Bit(lv, (field[0] >> i) & 1, 1);
+        List<Integer> o = new ArrayList<>();
+        int i = 0, n = lv.size();
+        while (i < n) {
+            int level = lv.get(i), cnt = 0;
+            while (i < n && lv.get(i) == level) { cnt++; i++; }
+            o.add(cnt * 444);
+        }
+        return Code.signal(36000, toArr(o));
+    }
+
+    private static void rc6Bit(List<Integer> lv, int bit, int width) {
+        int first = bit == 1 ? 1 : 0, second = 1 - first;   // RC6: 1 = mark then space
+        for (int k = 0; k < width; k++) lv.add(first);
+        for (int k = 0; k < width; k++) lv.add(second);
+    }
+
+    // ---- carrier frequency of a learned code, guessed from its timing pattern ----
+
+    /** Dongle learn frame: "ST" seq 'D' <duration bytes> "EN" -> carrier Hz (38000 if unknown). */
+    public static int detectCarrier(byte[] frame) {
+        if (frame == null || frame.length < 8) return 38000;
+        List<int[]> runs = new ArrayList<>();           // {isMark, us}
+        for (int i = 4; i < frame.length - 2; i++) {
+            int b = frame[i] & 0xff;
+            int mark = (b & 0x80) != 0 ? 1 : 0;
+            int us = (b & 0x7f) * 16;
+            if (!runs.isEmpty() && runs.get(runs.size() - 1)[0] == mark) runs.get(runs.size() - 1)[1] += us;
+            else runs.add(new int[]{mark, us});
+        }
+        while (!runs.isEmpty() && runs.get(0)[0] == 0) runs.remove(0);
+        if (runs.size() < 4) return 38000;
+        int m = runs.get(0)[1], sp = runs.get(1)[1];
+        if (near(m, 2400) && near(sp, 600)) return 40000;           // Sony
+        if (near(m, 2664) && near(sp, 888)) return 36000;           // RC6 / MCE
+        if (near(m, 3456) && near(sp, 1728)) return 36700;          // Panasonic / Kaseikyo
+        if (near(m, 9000) && near(sp, 4500)) return 38000;          // NEC
+        if (near(m, 4500) && near(sp, 4500)) return 38000;          // Samsung
+        // RC5: no leader, every pulse 889 or 1778 us
+        boolean rc5 = true;
+        for (int k = 0; k < Math.min(runs.size() - 1, 24); k++) {
+            int v = runs.get(k)[1];
+            if (!(near(v, 889) || near(v, 1778))) { rc5 = false; break; }
+        }
+        if (rc5) return 36000;
+        return 38000;
+    }
+
+    private static boolean near(int v, int target) { return Math.abs(v - target) <= target * 0.2; }
+
     // ---- turning a single frame into a realistic button press ----
 
     private static int sum(int[] a) { int s = 0; for (int v : a) s += v; return s; }

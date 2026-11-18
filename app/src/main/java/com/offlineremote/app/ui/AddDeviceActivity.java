@@ -246,6 +246,7 @@ public class AddDeviceActivity extends BaseActivity {
         loadRows(cat.he, () -> {
             List<SimpleAdapter.Row> rows = new ArrayList<>();
             if (cat.slug.equals("speaker") || cat.slug.equals("soundbar")) rows.add(scanRow("audio"));
+            if (cat.slug.equals("led")) rows.add(scanRow("led"));
             for (String b : App.get().lib().brands(cat.slug)) {
                 final String brand = b;
                 rows.add(new SimpleAdapter.Row(HebrewNames.only(brand), sub(brand), () -> push(() -> libModels(cat, brand))));

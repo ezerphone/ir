@@ -29,7 +29,7 @@ final class ScanPool {
         final List<PreviewSession.Builder> builders = new ArrayList<>();
     }
 
-    private static List<Cand> acCache, audioCache;
+    private static List<Cand> acCache, audioCache, ledCache;
 
     private ScanPool() {}
 
@@ -81,17 +81,28 @@ final class ScanPool {
     }
 
     static synchronized List<Cand> audio() {
-        if (audioCache != null) return audioCache;
+        if (audioCache == null) audioCache = libPool(new String[]{"soundbar", "speaker"}, false);
+        return audioCache;
+    }
+
+    /** LED lamps: the "on" code first (a lamp lighting up is easy to see), else power. */
+    static synchronized List<Cand> led() {
+        if (ledCache == null) ledCache = libPool(new String[]{"led"}, true);
+        return ledCache;
+    }
+
+    private static List<Cand> libPool(String[] slugs, boolean preferOn) {
         FlipperLibrary lib = App.get().lib();
         Map<String, Cand> map = new LinkedHashMap<>();
-        for (String slug : new String[]{"soundbar", "speaker"}) {
+        for (String slug : slugs) {
             for (FlipperLibrary.Dev d : lib.all(slug)) {
-                Code power = null;
+                Code power = null, on = null;
                 for (IrKey k : lib.keys(d)) {
-                    String role = KeyRoles.byName(k.label, false);
-                    if (KeyRoles.POWER.equals(role)) { power = k.code; break; }
-                    if (KeyRoles.ON.equals(role) && power == null) power = k.code;
+                    String role = KeyRoles.byName(k.label, "led".equals(slug));
+                    if (KeyRoles.POWER.equals(role) && power == null) power = k.code;
+                    if (KeyRoles.ON.equals(role) && on == null) on = k.code;
                 }
+                if (preferOn ? on != null : power == null) power = on != null ? on : power;
                 if (power == null) continue;
                 String key = id(power);
                 Cand cand = map.get(key);
@@ -101,7 +112,7 @@ final class ScanPool {
                 if (!cand.brands.contains(brandHe)) cand.brands.add(brandHe);
                 cand.builders.add(() -> {
                     SavedRemote r = new SavedRemote();
-                    r.source = "lib"; r.category = dev.slug; r.name = Icons.noun(dev.slug, "רמקול");
+                    r.source = "lib"; r.category = dev.slug; r.name = Icons.noun(dev.slug, "מכשיר");
                     r.brand = brandHe;
                     r.keys = App.get().lib().keys(dev);
                     return r;
@@ -111,7 +122,6 @@ final class ScanPool {
         List<Cand> out = new ArrayList<>(map.values());
         // codes shared by many remotes (typical factory codes) are tried first
         Collections.sort(out, (a, b) -> Integer.compare(b.builders.size(), a.builders.size()));
-        audioCache = out;
         return out;
     }
 }
