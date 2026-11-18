@@ -1,0 +1,13 @@
++ adb shell dumpsys window displays
++ grep -iE 'mRotation|mCurrentRotation|rotation='
++ head -5
+    mCurRotation=0 mOriginalRotation=2
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_90 mSeascapeRotation=ROTATION_270
+    mPortraitRotation=ROTATION_0 mUpsideDownRotation=ROTATION_180
+    mSupportAutoRotation=true
++ adb shell dumpsys input
++ grep -i SurfaceOrientation
++ head -2
+      SurfaceOrientation: 0
+      SurfaceOrientation: 0
